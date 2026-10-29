@@ -1,0 +1,6 @@
+regime,months_count,mean_liquid_flow_cr,mean_overnight_flow_cr,mean_combined_flow_cr,p95_outflow_combined_cr,mean_laf_surplus_kcr
+March (Q4 Advance Tax + FY-End),7,-129068.7,-34323.0,-163391.7,196938.7,-107.5
+Jun / Sep / Dec (Q1–Q3 Advance Tax + Qtr-End),23,-59906.5,-8899.5,-68806.0,115791.4,-38.8
+April (FY-Start Treasury Re-deployment),8,144843.3,29507.2,174350.5,0.0,99.6
+Jul / Oct / Jan (Qtr-Start Rebound),22,95919.0,19124.6,115043.6,0.0,104.9
+May / Aug / Nov / Feb (Mid-Quarter Normal),30,15064.6,-5473.5,9591.1,40873.8,54.0

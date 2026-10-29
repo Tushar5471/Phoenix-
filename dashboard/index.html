@@ -1,0 +1,976 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>ZECKATHON PS 03 — Liquid &amp; Overnight Fund Flow Forecast &amp; CIO Cash-Buffer Dashboard</title>
+  <script src="https://cdn.tailwindcss.com/3.4.17"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1"></script>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+  <style>
+    body { font-family: 'Inter', sans-serif; background-color: #F8FAFC; color: #0F172A; }
+    .tab-btn-active { background-color: #1E3A8A; color: #FFFFFF; box-shadow: 0 1px 3px rgba(0,0,0,0.15); }
+    .tab-btn-inactive { background-color: #F1F5F9; color: #475569; }
+    .tab-btn-inactive:hover { background-color: #E2E8F0; color: #0F172A; }
+    input[type="range"] { accent-color: #1D4ED8; }
+  </style>
+</head>
+<body class="min-h-screen flex flex-col">
+
+  <!-- Top Header Bar -->
+  <header class="bg-slate-900 text-white border-b border-slate-800 sticky top-0 z-30">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 py-3 flex flex-wrap items-center justify-between gap-3">
+      <div class="flex items-center gap-3">
+        <div class="w-9 h-9 rounded-lg bg-blue-600 flex items-center justify-center font-extrabold text-sm tracking-tight">PS03</div>
+        <div>
+          <div class="flex items-center gap-2">
+            <span class="text-xs font-semibold uppercase tracking-wider text-blue-400">ZECKATHON • Forecasting &amp; Decision Science</span>
+            <span class="text-xs bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full font-medium">Calibrated Conformal Q-GBDT</span>
+          </div>
+          <h1 class="text-base sm:text-lg font-bold tracking-tight text-white">How Much Cash Must a Liquid Fund Hold on 15 March?</h1>
+        </div>
+      </div>
+
+      <!-- Navigation Tabs -->
+      <nav class="flex flex-wrap items-center gap-1.5" aria-label="Dashboard Views">
+        <button id="tabBtnOverview" type="button" class="px-3 py-1.5 rounded-lg text-xs sm:text-sm font-semibold transition tab-btn-active">1. 1st-of-Month CIO Desk</button>
+        <button id="tabBtnDrivers" type="button" class="px-3 py-1.5 rounded-lg text-xs sm:text-sm font-semibold transition tab-btn-inactive">2. Driver Analysis &amp; Stress</button>
+        <button id="tabBtnBenchmark" type="button" class="px-3 py-1.5 rounded-lg text-xs sm:text-sm font-semibold transition tab-btn-inactive">3. Model Benchmarking (24M)</button>
+        <button id="tabBtnDecision" type="button" class="px-3 py-1.5 rounded-lg text-xs sm:text-sm font-semibold transition tab-btn-inactive">4. Policy Cost Backtest</button>
+      </nav>
+    </div>
+  </header>
+
+  <!-- Interactive Control Strip (Persistent across views for 1st-of-Month Actionability) -->
+  <section class="bg-white border-b border-slate-200 shadow-sm">
+    <div class="max-w-7xl mx-auto px-4 sm:px-6 py-3 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 items-end">
+      <div>
+        <label for="selectMonth" class="block text-xs font-semibold text-slate-600 mb-1">1st-of-Month Decision Date</label>
+        <select id="selectMonth" class="w-full rounded-lg border border-slate-300 bg-slate-50 px-2.5 py-1.5 text-xs sm:text-sm font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600">
+          <option value="2027-03" selected>1 Mar 2027 → 15 Mar Advance-Tax &amp; FY-End</option>
+          <option value="2026-10">1 Oct 2026 → Live Next AMFI Release (Q3 Start)</option>
+          <option value="2026-11">1 Nov 2026 → Mid-Quarter Normal Regime</option>
+          <option value="2026-12">1 Dec 2026 → 15 Dec Advance-Tax &amp; Q3-End</option>
+          <option value="2027-01">1 Jan 2027 → Post-Tax Q4 Re-deployment</option>
+          <option value="2027-02">1 Feb 2027 → Pre-March Accumulation</option>
+        </select>
+      </div>
+
+      <div>
+        <label for="selectCategory" class="block text-xs font-semibold text-slate-600 mb-1">AMFI Fund Category</label>
+        <select id="selectCategory" class="w-full rounded-lg border border-slate-300 bg-slate-50 px-2.5 py-1.5 text-xs sm:text-sm font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600">
+          <option value="Liquid Funds" selected>Liquid Funds (₹6,25,847 Cr AUM)</option>
+          <option value="Overnight Funds">Overnight Funds (₹76,841 Cr AUM)</option>
+          <option value="Combined (Liquid + Overnight)">Combined Liquid + Overnight (₹7,02,688 Cr)</option>
+        </select>
+      </div>
+
+      <div>
+        <label for="selectPolicy" class="block text-xs font-semibold text-slate-600 mb-1">Cash-Buffer Decision Rule</label>
+        <select id="selectPolicy" class="w-full rounded-lg border border-slate-300 bg-slate-50 px-2.5 py-1.5 text-xs sm:text-sm font-semibold text-slate-900 focus:outline-none focus:ring-2 focus:ring-blue-600">
+          <option value="cio_regime" selected>CIO Regime-Adaptive (75p/78p Optimal, -31.3% Cost)</option>
+          <option value="newsvendor_75">Newsvendor Critical Fractile (75th Pct, c_u/c_o=3)</option>
+          <option value="tail_95">Conservative Tail Rule (95th Pct Outflow)</option>
+          <option value="median_50">Point Forecast Outflow Rule (50th Pct)</option>
+          <option value="naive_lag12">Naive Baseline (Last Year Same-Month Outflow)</option>
+        </select>
+      </div>
+
+      <div>
+        <label for="inputSchemeAum" class="block text-xs font-semibold text-slate-600 mb-1">Your Fund AUM (₹ Crore)</label>
+        <div class="flex items-center gap-1.5">
+          <input id="inputSchemeAum" type="number" min="500" max="750000" step="500" value="25000" class="w-full rounded-lg border border-slate-300 bg-white px-2.5 py-1.5 text-xs sm:text-sm font-bold text-blue-900 focus:outline-none focus:ring-2 focus:ring-blue-600" />
+          <button id="btnSetIndustryAum" type="button" title="Set to Full AMFI Category AUM" class="px-2 py-1.5 rounded-lg bg-slate-200 hover:bg-slate-300 text-xs font-semibold text-slate-700 shrink-0">Industry</button>
+        </div>
+      </div>
+
+      <div class="flex items-center justify-between sm:justify-end gap-2">
+        <button id="btnExportCsv" type="button" class="w-full sm:w-auto px-3 py-1.5 rounded-lg bg-blue-700 hover:bg-blue-800 text-white text-xs sm:text-sm font-semibold transition flex items-center justify-center gap-1.5 shadow-sm">
+          <span>Export Policy Schedule (CSV)</span>
+        </button>
+      </div>
+    </div>
+  </section>
+
+  <!-- Toast Notification Banner -->
+  <div id="toastBanner" class="hidden fixed bottom-4 right-4 z-50 bg-slate-900 text-white px-4 py-2.5 rounded-xl shadow-lg border border-slate-700 text-xs sm:text-sm font-medium"></div>
+
+  <!-- Main Content Container -->
+  <main class="max-w-7xl mx-auto px-4 sm:px-6 py-5 flex-1 w-full space-y-5">
+
+    <!-- =================================================================== -->
+    <!-- TAB 1: 1ST-OF-MONTH CIO COMMAND CENTER (ONE-PAGE DASHBOARD)         -->
+    <!-- =================================================================== -->
+    <div id="viewOverview" class="space-y-5">
+
+      <!-- Top 4 Executive KPI Cards -->
+      <div class="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-semibold uppercase tracking-wider text-slate-500" id="kpiCard1Label">Selected Month Point Forecast</span>
+            <span id="kpiRegimeBadge" class="text-xs font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-800">Advance-Tax + FY-End</span>
+          </div>
+          <div class="mt-2 text-2xl font-extrabold text-slate-900" id="kpiPointForecast">-₹1,39,493 Cr</div>
+          <div class="mt-1 text-xs text-slate-600" id="kpiInterval80">80% PI: [-₹1,64,582, -₹1,14,221 Cr]</div>
+          <div class="text-xs text-slate-500" id="kpiInterval95">95% PI: [-₹1,81,851, -₹95,954 Cr]</div>
+        </div>
+
+        <div class="bg-blue-950 text-white rounded-xl border border-blue-900 p-4 shadow-sm">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-semibold uppercase tracking-wider text-blue-300">Recommended Scheme Cash Buffer</span>
+            <span class="text-xs font-semibold bg-blue-800 text-blue-200 px-2 py-0.5 rounded-full" id="kpiSchemeAumTag">₹25,000 Cr Fund</span>
+          </div>
+          <div class="mt-2 text-2xl font-extrabold text-white" id="kpiSchemeBufferCr">₹6,164.0 Cr</div>
+          <div class="mt-1 text-xs text-blue-200 font-medium" id="kpiBufferPctAum">24.66% of Fund AUM in Cash/TREPS</div>
+          <div class="text-xs text-blue-300" id="kpiIndustryBufferCr">Industry Equivalent: ₹1,54,308 Cr</div>
+        </div>
+
+        <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-semibold uppercase tracking-wider text-slate-500">95th Pct Tail Outflow Buffer</span>
+            <span class="text-xs font-semibold bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full">Zero-Shortfall Guard</span>
+          </div>
+          <div class="mt-2 text-2xl font-extrabold text-slate-900" id="kpiTail95SchemeCr">₹6,919.3 Cr</div>
+          <div class="mt-1 text-xs text-slate-600" id="kpiTail95PctAum">27.68% of Fund AUM (95% CI Bound)</div>
+          <div class="text-xs text-slate-500" id="kpiExpectedDragCr">Est. Monthly Yield Drag: ₹3.95 Cr (19.0 bps ann.)</div>
+        </div>
+
+        <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+          <div class="flex items-center justify-between">
+            <span class="text-xs font-semibold uppercase tracking-wider text-slate-500">Out-of-Sample Policy Edge</span>
+            <span class="text-xs font-semibold bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded-full">24M Rolling Backtest</span>
+          </div>
+          <div class="mt-2 text-2xl font-extrabold text-emerald-700" id="kpiCostSavingPct">-31.28% Cost vs Naive</div>
+          <div class="mt-1 text-xs text-slate-600">24M Cost: ₹139.8 Cr vs ₹203.4 Cr (Naive)</div>
+          <div class="text-xs text-slate-500">Champion MAPE: 20.35% | 95% PI Cov: 95.8%</div>
+        </div>
+      </div>
+
+      <!-- Main Charts Row: Left = 6M Forward Forecast & Uncertainty Fan, Right = Portfolio Allocation & Buffer Rule -->
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div class="lg:col-span-2 bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+          <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+            <div>
+              <h2 class="text-sm sm:text-base font-bold text-slate-900">Forward Net Flow Forecast &amp; Calibrated Prediction Intervals (Oct 2026 – Mar 2027)</h2>
+              <p class="text-xs text-slate-500">Point forecast with 80% ([q10, q90]) and 95% ([q025, q975]) split-conformal intervals vs Seasonal Naive benchmark</p>
+            </div>
+            <span class="text-xs font-semibold text-blue-700 bg-blue-50 px-2.5 py-1 rounded-md border border-blue-200" id="chartCategoryTag">Category: Liquid Funds</span>
+          </div>
+          <div class="relative h-72">
+            <canvas id="chartForwardForecast"></canvas>
+          </div>
+        </div>
+
+        <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-sm flex flex-col justify-between">
+          <div>
+            <h2 class="text-sm sm:text-base font-bold text-slate-900">1st-of-Month Portfolio Liquidity Split</h2>
+            <p class="text-xs text-slate-500 mb-3">Recommended allocation between liquid Overnight/TREPS buffer vs higher-yielding 91D T-Bills &amp; 3M CP</p>
+            <div class="relative h-48">
+              <canvas id="chartAllocationDonut"></canvas>
+            </div>
+          </div>
+          <div class="mt-3 pt-3 border-t border-slate-100 space-y-1.5 text-xs">
+            <div class="flex justify-between">
+              <span class="text-slate-600 font-medium">Overnight Call / TREPS Yield:</span>
+              <span class="font-bold text-slate-900" id="metricCallYield">5.72% p.a.</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-slate-600 font-medium">3M Commercial Paper / T-Bill Yield:</span>
+              <span class="font-bold text-slate-900" id="metricCpYield">6.72% / 5.95% p.a.</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-slate-600 font-medium">Cash Buffer Opportunity Spread:</span>
+              <span class="font-bold text-amber-700" id="metricSpreadBps">100.0 bps (8.3 bps/month)</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-slate-600 font-medium">RBI LAF System Liquidity Forecast:</span>
+              <span class="font-bold text-red-700" id="metricLafPosition">-₹1,42,000 Cr (Tax Deficit)</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Bottom Row: Complete 6-Month Actionable Cash-Buffer Schedule Table -->
+      <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+          <div>
+            <h2 class="text-sm sm:text-base font-bold text-slate-900">Actionable Monthly Cash-Buffer Schedule (Next 3 Months Challenge Window + Q4 FY27 through 15 March)</h2>
+            <p class="text-xs text-slate-500">Click any row to inspect that month on the CIO Desk. Columns dynamically scale to your entered Fund AUM.</p>
+          </div>
+          <span class="text-xs text-slate-500 font-medium">Newsvendor Critical Fractile: q* = c_u / (c_o + c_u) = 3 / (1 + 3) = 75.0%</span>
+        </div>
+        <div class="overflow-x-auto">
+          <table class="w-full text-left border-collapse text-xs">
+            <thead>
+              <tr class="border-b-2 border-slate-200 bg-slate-50 text-slate-700 font-bold">
+                <th class="py-2.5 px-3">Month</th>
+                <th class="py-2.5 px-3">Treasury Regime &amp; Key Event</th>
+                <th class="py-2.5 px-3 text-right">Point Forecast (₹ Cr)</th>
+                <th class="py-2.5 px-3 text-right">80% Prediction Interval</th>
+                <th class="py-2.5 px-3 text-right">95% Prediction Interval</th>
+                <th class="py-2.5 px-3 text-right">Recommended Buffer (% AUM)</th>
+                <th class="py-2.5 px-3 text-right">Your Fund Buffer (₹ Cr)</th>
+                <th class="py-2.5 px-3 text-right">95th Pct Tail Buffer (₹ Cr)</th>
+              </tr>
+            </thead>
+            <tbody id="tableScheduleBody" class="divide-y divide-slate-200"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- =================================================================== -->
+    <!-- TAB 2: DRIVER ANALYSIS & MACRO STRESS SIMULATOR                     -->
+    <!-- =================================================================== -->
+    <div id="viewDrivers" class="hidden space-y-5">
+      <div class="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <div class="lg:col-span-2 bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+          <h2 class="text-sm sm:text-base font-bold text-slate-900">Deliverable 02: Econometric Driver Significance (Partial R² &amp; Newey-West HAC t-Stats)</h2>
+          <p class="text-xs text-slate-500 mb-3">Multi-factor OLS regression with Newey-West HAC robust standard errors (R² = 94.12%, Adj. R² = 93.54%, n = 90 months)</p>
+          <div class="relative h-72">
+            <canvas id="chartDriversBar"></canvas>
+          </div>
+        </div>
+
+        <!-- Interactive What-If Macro & Tax Stress Simulator -->
+        <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-sm flex flex-col justify-between">
+          <div>
+            <div class="flex items-center justify-between mb-1">
+              <h2 class="text-sm sm:text-base font-bold text-slate-900">Interactive Stress Simulator</h2>
+              <button id="btnResetStress" type="button" class="text-xs text-blue-700 hover:underline font-semibold">Reset to 15 Mar Base</button>
+            </div>
+            <p class="text-xs text-slate-500 mb-3">Perturb key drivers to test sensitivity of 15 March net outflows and required cash buffer</p>
+
+            <div class="space-y-3 text-xs">
+              <div>
+                <div class="flex justify-between font-semibold mb-1">
+                  <span>RBI LAF Banking Deficit (₹ '000 Cr):</span>
+                  <span id="lblSimLaf" class="text-blue-700">-142.0 ('000 Cr)</span>
+                </div>
+                <input id="sliderSimLaf" type="range" min="-250" max="150" step="5" value="-142" class="w-full" />
+              </div>
+
+              <div>
+                <div class="flex justify-between font-semibold mb-1">
+                  <span>Advance-Tax Outflow Intensity (% of Base):</span>
+                  <span id="lblSimTax" class="text-blue-700">100%</span>
+                </div>
+                <input id="sliderSimTax" type="range" min="50" max="150" step="5" value="100" class="w-full" />
+              </div>
+
+              <div>
+                <div class="flex justify-between font-semibold mb-1">
+                  <span>91D T-Bill over Call Spread (bps):</span>
+                  <span id="lblSimSpread" class="text-blue-700">23.0 bps</span>
+                </div>
+                <input id="sliderSimSpread" type="range" min="-10" max="80" step="2" value="23" class="w-full" />
+              </div>
+
+              <div>
+                <div class="flex justify-between font-semibold mb-1">
+                  <span>NSE Nifty 50 Monthly Return (%):</span>
+                  <span id="lblSimNifty" class="text-blue-700">-2.1%</span>
+                </div>
+                <input id="sliderSimNifty" type="range" min="-15" max="15" step="0.5" value="-2.1" class="w-full" />
+              </div>
+            </div>
+          </div>
+
+          <div class="mt-4 p-3 rounded-lg bg-slate-900 text-white space-y-1.5 text-xs">
+            <div class="flex justify-between">
+              <span class="text-slate-300">Simulated Combined Net Flow:</span>
+              <span id="simResultFlow" class="font-extrabold text-amber-400">-₹1,80,361 Cr</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-slate-300">Simulated Liquid Buffer (% AUM):</span>
+              <span id="simResultPct" class="font-bold text-emerald-400">24.66% of AUM</span>
+            </div>
+            <div class="flex justify-between">
+              <span class="text-slate-300">Your Scheme Stressed Buffer:</span>
+              <span id="simResultSchemeCr" class="font-extrabold text-white">₹6,164.0 Cr</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Full Econometric Driver Table -->
+      <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+        <h2 class="text-sm sm:text-base font-bold text-slate-900 mb-1">Empirical Driver Hypothesis Testing Summary (What Matters in Practice vs Noise)</h2>
+        <p class="text-xs text-slate-500 mb-3">Calendar tax drains and RBI LAF banking-system liquidity dominate; equity market moves and raw CP spreads are statistically indistinguishable from noise once calendar and LAF tightness are controlled for.</p>
+        <div class="overflow-x-auto">
+          <table class="w-full text-left border-collapse text-xs">
+            <thead>
+              <tr class="border-b-2 border-slate-200 bg-slate-50 text-slate-700 font-bold">
+                <th class="py-2.5 px-3">Driver Variable</th>
+                <th class="py-2.5 px-3">Hypothesis Family</th>
+                <th class="py-2.5 px-3 text-right">Slope Coef (₹ Cr)</th>
+                <th class="py-2.5 px-3 text-right">HAC Robust SE</th>
+                <th class="py-2.5 px-3 text-right">t-Statistic</th>
+                <th class="py-2.5 px-3 text-right">p-Value</th>
+                <th class="py-2.5 px-3 text-right">1-SD Shock Impact</th>
+                <th class="py-2.5 px-3 text-right">Partial R²</th>
+                <th class="py-2.5 px-3">Practical Verdict</th>
+              </tr>
+            </thead>
+            <tbody id="tableDriversBody" class="divide-y divide-slate-200"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- =================================================================== -->
+    <!-- TAB 3: MODEL BENCHMARKING & 24-MONTH ROLLING BACKTEST               -->
+    <!-- =================================================================== -->
+    <div id="viewBenchmark" class="hidden space-y-5">
+      <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+        <div class="flex flex-wrap items-center justify-between gap-2 mb-3">
+          <div>
+            <h2 class="text-sm sm:text-base font-bold text-slate-900">Deliverable 03: Rolling-Origin 24-Month Backtest (Oct 2024 – Sep 2026, Refit at Each Step)</h2>
+            <p class="text-xs text-slate-500">Out-of-sample trajectory comparing Actual AMFI Net Flows against Q-GBDT + Conformal (Champion) and Seasonal Naive</p>
+          </div>
+          <span class="text-xs font-semibold bg-emerald-100 text-emerald-800 px-2.5 py-1 rounded-md">80% PI Cov: 87.5% | 95% PI Cov: 95.8%</span>
+        </div>
+        <div class="relative h-72">
+          <canvas id="chartRollingBacktest"></canvas>
+        </div>
+      </div>
+
+      <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+        <h2 class="text-sm sm:text-base font-bold text-slate-900 mb-1">Classical vs Machine Learning &amp; Deep Learning Out-of-Sample Scorecard</h2>
+        <p class="text-xs text-slate-500 mb-3">Evaluated strictly on the last 24 monthly releases with expanding-window refits at each step (PS 03 Evaluation Protocol)</p>
+        <div class="overflow-x-auto">
+          <table class="w-full text-left border-collapse text-xs">
+            <thead>
+              <tr class="border-b-2 border-slate-200 bg-slate-50 text-slate-700 font-bold">
+                <th class="py-2.5 px-3">Model Architecture</th>
+                <th class="py-2.5 px-3 text-right">MAPE (%)</th>
+                <th class="py-2.5 px-3 text-right">WAPE (%)</th>
+                <th class="py-2.5 px-3 text-right">MAE (₹ Cr)</th>
+                <th class="py-2.5 px-3 text-right">RMSE (₹ Cr)</th>
+                <th class="py-2.5 px-3 text-right">Mean Pinball Loss</th>
+                <th class="py-2.5 px-3 text-right">q90 Pinball Loss</th>
+                <th class="py-2.5 px-3 text-right">80% PI Coverage</th>
+                <th class="py-2.5 px-3 text-right">95% PI Coverage</th>
+                <th class="py-2.5 px-3 text-right">Avg 95% PI Width</th>
+              </tr>
+            </thead>
+            <tbody id="tableBenchmarkBody" class="divide-y divide-slate-200"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <!-- =================================================================== -->
+    <!-- TAB 4: DECISION LAYER & HISTORICAL COST BACKTEST                    -->
+    <!-- =================================================================== -->
+    <div id="viewDecision" class="hidden space-y-5">
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+          <h2 class="text-sm sm:text-base font-bold text-slate-900">Deliverable 04: 24-Month Cumulative Decision Cost Decomposition</h2>
+          <p class="text-xs text-slate-500 mb-3">Idle Cash Yield Drag (1× opportunity spread) vs Redemption Shortfall Distress Penalty (3× penalty)</p>
+          <div class="relative h-72">
+            <canvas id="chartPolicyCostBar"></canvas>
+          </div>
+        </div>
+
+        <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-sm flex flex-col justify-between">
+          <div>
+            <h2 class="text-sm sm:text-base font-bold text-slate-900 mb-1">Interactive Newsvendor Cost &amp; Penalty Sensitivity</h2>
+            <p class="text-xs text-slate-500 mb-3">Adjust the Shortfall Penalty Multiplier (c_u / c_o) to observe the optimal Newsvendor quantile q* = c_u / (1 + c_u) and 24-month historical cost</p>
+
+            <div class="space-y-3 text-xs">
+              <div>
+                <div class="flex justify-between font-semibold mb-1">
+                  <span>Redemption Shortfall Penalty Multiplier (c_u / c_o):</span>
+                  <span id="lblPenaltyMult" class="text-blue-700 font-bold">3.0× (PS 03 Official Rule)</span>
+                </div>
+                <input id="sliderPenaltyMult" type="range" min="1.0" max="6.0" step="0.5" value="3.0" class="w-full" />
+              </div>
+            </div>
+
+            <div class="mt-4 grid grid-cols-2 gap-3 text-xs">
+              <div class="p-3 rounded-lg bg-slate-50 border border-slate-200">
+                <div class="text-slate-500 font-medium">Optimal Newsvendor Quantile q*</div>
+                <div id="calcOptimalQuantile" class="text-lg font-extrabold text-blue-900 mt-0.5">75.0th Percentile</div>
+                <div class="text-slate-400">Formula: c_u / (1 + c_u)</div>
+              </div>
+              <div class="p-3 rounded-lg bg-emerald-50 border border-emerald-200">
+                <div class="text-emerald-700 font-medium">CIO Policy Cost Saving vs Naive</div>
+                <div id="calcDynamicSaving" class="text-lg font-extrabold text-emerald-800 mt-0.5">-31.28% (Saves ₹63.6 Cr)</div>
+                <div class="text-emerald-600" id="calcDynamicCompare">₹139.8 Cr vs ₹203.4 Cr Naive</div>
+              </div>
+            </div>
+          </div>
+
+          <div class="mt-4 p-3 rounded-lg bg-blue-50 border border-blue-200 text-xs text-blue-950 space-y-1">
+            <div class="font-bold">Why the 75p/78p Regime Policy Beats Both Naive &amp; 95th Percentile Rules:</div>
+            <p class="text-blue-900 leading-relaxed">Holding the 95th percentile outflow in all months eliminates shortfalls in 23 of 24 months, but incurs <strong>₹222.5 Cr of idle cash yield drag</strong>. The Newsvendor 75p/78p Regime Policy releases idle cash during post-tax rebound months (Apr/Jul/Oct/Jan) while fortifying liquidity ahead of 15 Jun, 15 Sep, 15 Dec, and 15 Mar.</p>
+          </div>
+        </div>
+      </div>
+
+      <!-- Policy Comparison Table -->
+      <div class="bg-white rounded-xl border border-slate-200 p-4 shadow-sm">
+        <h2 class="text-sm sm:text-base font-bold text-slate-900 mb-1">24-Month Historical Policy Backtest Table (Oct 2024 – Sep 2026)</h2>
+        <p class="text-xs text-slate-500 mb-3">Benchmarked directly against the PS 03 Naive Rule ("hold last year's same-month outflow")</p>
+        <div class="overflow-x-auto">
+          <table class="w-full text-left border-collapse text-xs">
+            <thead>
+              <tr class="border-b-2 border-slate-200 bg-slate-50 text-slate-700 font-bold">
+                <th class="py-2.5 px-3">Cash-Buffer Policy Rule</th>
+                <th class="py-2.5 px-3 text-right">Avg Buffer (₹ Cr)</th>
+                <th class="py-2.5 px-3 text-right">Avg Buffer (% AUM)</th>
+                <th class="py-2.5 px-3 text-right">Shortfall Months</th>
+                <th class="py-2.5 px-3 text-right">24M Idle Drag Cost</th>
+                <th class="py-2.5 px-3 text-right">24M 3× Shortfall Penalty</th>
+                <th class="py-2.5 px-3 text-right">Total 24M Decision Cost</th>
+                <th class="py-2.5 px-3 text-right">Cost Reduction vs Naive</th>
+              </tr>
+            </thead>
+            <tbody id="tablePolicyBody" class="divide-y divide-slate-200"></tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+  </main>
+
+  <!-- Footer -->
+  <footer class="bg-white border-t border-slate-200 mt-8 py-3 px-4 sm:px-6 text-xs text-slate-500">
+    <div class="max-w-7xl mx-auto flex flex-wrap justify-between items-center gap-2">
+      <span><strong>ZECKATHON PS 03</strong> • Liquid &amp; Overnight Mutual Fund Flow Forecasting &amp; Cash-Buffer Decision Engine</span>
+      <span>Data Sources: AMFI Monthly Disclosures, RBI DBIE (Repo/SDF/LAF), CCIL/FBIL (TREPS/T-Bill/CP), NSE Nifty 50, Income Tax Advance-Tax Calendar</span>
+    </div>
+  </footer>
+
+  <script>
+    const PAYLOAD = {"metadata": {"problem_id": "ZECKATHON PS 03", "title": "How Much Cash Must a Liquid Fund Hold on 15 March?", "last_actual_release": "2026-09 (AMFI Released October 2026)", "next_3m_window": ["2026-10", "2026-11", "2026-12"], "extended_march_target": "2027-03 (15 March Advance Tax & FY-End)", "industry_liquid_aum_cr": 625847.01, "industry_overnight_aum_cr": 76840.5, "industry_combined_aum_cr": 702687.51}, "driver_analysis_combined": [{"feature_key": "is_qtr_start_rebound", "driver_name": "Post-Quarter-End Treasury Re-deployment (Apr/Jul/Oct/Jan)", "category": "Calendar Effect (Rebound)", "coef_cr_per_unit": 90604.05, "hac_se": 4421.55, "t_stat": 20.49, "p_value": 0.0, "significance": "*** (p<0.01)", "std_beta": 0.43, "one_sd_impact_cr": 42950.4, "partial_r2_pct": 78.55, "matters_in_practice": "YES (Primary)"}, {"feature_key": "rbi_laf_liquidity_surplus_kcr", "driver_name": "RBI LAF Banking Liquidity Surplus/Deficit (\u20b9 '000 Cr)", "category": "Banking Liquidity (RBI LAF)", "coef_cr_per_unit": 272.14, "hac_se": 16.37, "t_stat": 16.62, "p_value": 0.0, "significance": "*** (p<0.01)", "std_beta": 0.283, "one_sd_impact_cr": 28248.5, "partial_r2_pct": 61.03, "matters_in_practice": "YES (Primary)"}, {"feature_key": "advance_tax_installment_wt", "driver_name": "Advance-Tax Installment Weight (15 Jun/Sep/Dec/Mar)", "category": "Calendar Effect (Tax)", "coef_cr_per_unit": -257310.67, "hac_se": 23802.65, "t_stat": -10.81, "p_value": 0.0, "significance": "*** (p<0.01)", "std_beta": -0.317, "one_sd_impact_cr": -31700.0, "partial_r2_pct": 49.43, "matters_in_practice": "YES (Primary)"}, {"feature_key": "is_fy_start_april", "driver_name": "New Fiscal Year Surplus Deployment Surge (April)", "category": "Calendar Effect (FY-Start)", "coef_cr_per_unit": 59808.62, "hac_se": 4894.72, "t_stat": 12.22, "p_value": 0.0, "significance": "*** (p<0.01)", "std_beta": 0.171, "one_sd_impact_cr": 17115.9, "partial_r2_pct": 44.45, "matters_in_practice": "YES (Primary)"}, {"feature_key": "is_fy_end_march", "driver_name": "Fiscal Year-End Balance-Sheet Dressing (15\u201331 March)", "category": "Calendar Effect (FY-End)", "coef_cr_per_unit": -66318.93, "hac_se": 13637.41, "t_stat": -4.86, "p_value": 1e-05, "significance": "*** (p<0.01)", "std_beta": -0.179, "one_sd_impact_cr": -17861.1, "partial_r2_pct": 22.88, "matters_in_practice": "YES (Primary)"}, {"feature_key": "spread_tbill_call_bps", "driver_name": "91D Treasury-Bill vs Overnight Call Spread (bps)", "category": "Money-Market Yield Spread", "coef_cr_per_unit": 1618.62, "hac_se": 841.97, "t_stat": 1.92, "p_value": 0.05807, "significance": "* (p<0.10)", "std_beta": 0.077, "one_sd_impact_cr": 7713.5, "partial_r2_pct": 3.96, "matters_in_practice": "Marginal / Noise"}, {"feature_key": "spread_cp_overnight_bps", "driver_name": "3M Commercial Paper vs Overnight Call Spread (bps)", "category": "Money-Market Yield Spread", "coef_cr_per_unit": -270.61, "hac_se": 468.49, "t_stat": -0.58, "p_value": 0.56512, "significance": "Not Sig.", "std_beta": -0.034, "one_sd_impact_cr": -3371.9, "partial_r2_pct": 0.36, "matters_in_practice": "Marginal / Noise"}, {"feature_key": "nifty50_return_pct", "driver_name": "NSE Nifty 50 Monthly Equity Return (%)", "category": "Equity-Market Move", "coef_cr_per_unit": 161.88, "hac_se": 647.5, "t_stat": 0.25, "p_value": 0.80322, "significance": "Not Sig.", "std_beta": 0.007, "one_sd_impact_cr": 675.0, "partial_r2_pct": 0.13, "matters_in_practice": "Marginal / Noise"}], "driver_r2": 0.971, "driver_adj_r2": 0.9682, "regime_summary": [{"regime": "March (Q4 Advance Tax + FY-End)", "months_count": 7, "mean_liquid_flow_cr": -129068.7, "mean_overnight_flow_cr": -34323.0, "mean_combined_flow_cr": -163391.7, "p95_outflow_combined_cr": 196938.7, "mean_laf_surplus_kcr": -107.5}, {"regime": "Jun / Sep / Dec (Q1\u2013Q3 Advance Tax + Qtr-End)", "months_count": 23, "mean_liquid_flow_cr": -59906.5, "mean_overnight_flow_cr": -8899.5, "mean_combined_flow_cr": -68806.0, "p95_outflow_combined_cr": 115791.4, "mean_laf_surplus_kcr": -38.8}, {"regime": "April (FY-Start Treasury Re-deployment)", "months_count": 8, "mean_liquid_flow_cr": 144843.3, "mean_overnight_flow_cr": 29507.2, "mean_combined_flow_cr": 174350.5, "p95_outflow_combined_cr": 0.0, "mean_laf_surplus_kcr": 99.6}, {"regime": "Jul / Oct / Jan (Qtr-Start Rebound)", "months_count": 22, "mean_liquid_flow_cr": 95919.0, "mean_overnight_flow_cr": 19124.6, "mean_combined_flow_cr": 115043.6, "p95_outflow_combined_cr": 0.0, "mean_laf_surplus_kcr": 104.9}, {"regime": "May / Aug / Nov / Feb (Mid-Quarter Normal)", "months_count": 30, "mean_liquid_flow_cr": 15064.6, "mean_overnight_flow_cr": -5473.5, "mean_combined_flow_cr": 9591.1, "p95_outflow_combined_cr": 40873.8, "mean_laf_surplus_kcr": 54.0}], "benchmarking_combined": [{"model": "Q-GBDT + Conformal (ML Champion)", "mape_pct": 20.35, "wape_pct": 12.6, "mae_cr": 11229.7, "rmse_cr": 15823.8, "mean_pinball_loss_cr": 3011.6, "pinball_q50_cr": 5597.1, "pinball_q90_cr": 2581.3, "coverage_80_pct": 87.5, "coverage_95_pct": 95.8, "avg_80_pi_width_cr": 42465.1, "avg_95_pi_width_cr": 69203.2}, {"model": "Neural MLP Ensemble (Deep Learning)", "mape_pct": 21.58, "wape_pct": 14.03, "mae_cr": 12507.6, "rmse_cr": 16792.3, "mean_pinball_loss_cr": 3240.7, "pinball_q50_cr": 6253.8, "pinball_q90_cr": 2560.1, "coverage_80_pct": 75.0, "coverage_95_pct": 91.7, "avg_80_pi_width_cr": 37794.2, "avg_95_pi_width_cr": 57801.3}, {"model": "SARIMAX + Exog (Classical)", "mape_pct": 21.45, "wape_pct": 13.77, "mae_cr": 12274.3, "rmse_cr": 17122.4, "mean_pinball_loss_cr": 3512.1, "pinball_q50_cr": 6137.1, "pinball_q90_cr": 3059.0, "coverage_80_pct": 62.5, "coverage_95_pct": 79.2, "avg_80_pi_width_cr": 27317.0, "avg_95_pi_width_cr": 42248.0}, {"model": "ETS / Holt-Winters (Classical)", "mape_pct": 27.46, "wape_pct": 17.06, "mae_cr": 15203.2, "rmse_cr": 17925.4, "mean_pinball_loss_cr": 3543.2, "pinball_q50_cr": 7601.6, "pinball_q90_cr": 2581.2, "coverage_80_pct": 91.7, "coverage_95_pct": 100.0, "avg_80_pi_width_cr": 57034.0, "avg_95_pi_width_cr": 87226.0}, {"model": "Seasonal Naive (Classical)", "mape_pct": 28.73, "wape_pct": 18.81, "mae_cr": 16769.6, "rmse_cr": 20312.4, "mean_pinball_loss_cr": 4127.9, "pinball_q50_cr": 8384.8, "pinball_q90_cr": 3363.2, "coverage_80_pct": 91.7, "coverage_95_pct": 100.0, "avg_80_pi_width_cr": 79328.4, "avg_95_pi_width_cr": 121322.4}], "benchmarking_liquid": [{"model": "Q-GBDT + Conformal (ML Champion)", "mape_pct": 16.93, "wape_pct": 12.51, "mae_cr": 9651.1, "rmse_cr": 13049.4, "mean_pinball_loss_cr": 2549.3, "pinball_q50_cr": 4815.1, "pinball_q90_cr": 2519.2, "coverage_80_pct": 91.7, "coverage_95_pct": 95.8, "avg_80_pi_width_cr": 38095.8, "avg_95_pi_width_cr": 62522.2}, {"model": "Neural MLP Ensemble (Deep Learning)", "mape_pct": 17.55, "wape_pct": 13.61, "mae_cr": 10500.5, "rmse_cr": 14691.1, "mean_pinball_loss_cr": 2832.7, "pinball_q50_cr": 5250.3, "pinball_q90_cr": 2742.6, "coverage_80_pct": 70.8, "coverage_95_pct": 95.8, "avg_80_pi_width_cr": 34063.8, "avg_95_pi_width_cr": 52096.1}, {"model": "ETS / Holt-Winters (Classical)", "mape_pct": 20.0, "wape_pct": 14.89, "mae_cr": 11483.4, "rmse_cr": 14352.2, "mean_pinball_loss_cr": 2865.0, "pinball_q50_cr": 5741.7, "pinball_q90_cr": 2189.5, "coverage_80_pct": 91.7, "coverage_95_pct": 100.0, "avg_80_pi_width_cr": 50069.7, "avg_95_pi_width_cr": 76575.1}, {"model": "SARIMAX + Exog (Classical)", "mape_pct": 17.9, "wape_pct": 13.71, "mae_cr": 10577.9, "rmse_cr": 14645.9, "mean_pinball_loss_cr": 2962.4, "pinball_q50_cr": 5288.9, "pinball_q90_cr": 3081.2, "coverage_80_pct": 66.7, "coverage_95_pct": 83.3, "avg_80_pi_width_cr": 24329.1, "avg_95_pi_width_cr": 37624.9}, {"model": "Seasonal Naive (Classical)", "mape_pct": 23.13, "wape_pct": 16.71, "mae_cr": 12892.4, "rmse_cr": 15320.2, "mean_pinball_loss_cr": 3238.5, "pinball_q50_cr": 6446.2, "pinball_q90_cr": 2481.5, "coverage_80_pct": 95.8, "coverage_95_pct": 100.0, "avg_80_pi_width_cr": 67956.0, "avg_95_pi_width_cr": 103929.8}], "benchmarking_overnight": [{"model": "Q-GBDT + Conformal (ML Champion)", "mape_pct": 43.57, "wape_pct": 28.03, "mae_cr": 4609.9, "rmse_cr": 7721.0, "mean_pinball_loss_cr": 1490.3, "pinball_q50_cr": 2270.3, "pinball_q90_cr": 1513.3, "coverage_80_pct": 79.2, "coverage_95_pct": 91.7, "avg_80_pi_width_cr": 15087.4, "avg_95_pi_width_cr": 26361.6}, {"model": "Neural MLP Ensemble (Deep Learning)", "mape_pct": 42.31, "wape_pct": 28.36, "mae_cr": 4664.3, "rmse_cr": 7698.4, "mean_pinball_loss_cr": 1517.6, "pinball_q50_cr": 2332.1, "pinball_q90_cr": 1643.4, "coverage_80_pct": 70.8, "coverage_95_pct": 87.5, "avg_80_pi_width_cr": 13369.7, "avg_95_pi_width_cr": 20447.2}, {"model": "SARIMAX + Exog (Classical)", "mape_pct": 43.41, "wape_pct": 29.06, "mae_cr": 4778.2, "rmse_cr": 7782.9, "mean_pinball_loss_cr": 1594.3, "pinball_q50_cr": 2389.1, "pinball_q90_cr": 1637.0, "coverage_80_pct": 62.5, "coverage_95_pct": 83.3, "avg_80_pi_width_cr": 9061.8, "avg_95_pi_width_cr": 14008.9}, {"model": "ETS / Holt-Winters (Classical)", "mape_pct": 49.42, "wape_pct": 32.7, "mae_cr": 5377.9, "rmse_cr": 7845.8, "mean_pinball_loss_cr": 1648.6, "pinball_q50_cr": 2688.9, "pinball_q90_cr": 1453.5, "coverage_80_pct": 62.5, "coverage_95_pct": 83.3, "avg_80_pi_width_cr": 10270.7, "avg_95_pi_width_cr": 15707.7}, {"model": "Seasonal Naive (Classical)", "mape_pct": 60.67, "wape_pct": 34.32, "mae_cr": 5644.1, "rmse_cr": 8685.4, "mean_pinball_loss_cr": 1774.2, "pinball_q50_cr": 2822.0, "pinball_q90_cr": 1861.0, "coverage_80_pct": 75.0, "coverage_95_pct": 87.5, "avg_80_pi_width_cr": 14334.8, "avg_95_pi_width_cr": 21923.2}], "forward_forecasts": [{"category": "Liquid Funds", "target_col": "liquid_net_flow_cr", "horizon_month": 1, "in_3m_challenge_window": true, "date": "2026-10-31", "year_month": "2026-10", "month": 10, "is_advance_tax_month": 0, "point_forecast_cr": 89950.42, "ci80_lower_cr": 62006.12, "ci80_upper_cr": 118071.71, "ci95_lower_cr": 42667.17, "ci95_upper_cr": 138491.65, "q25_flow_cr": 75341.69, "sarimax_point_cr": 87012.54, "seasonal_naive_point_cr": 89375.0, "expected_outflow_cr": 0.0, "optimal_q75_outflow_buffer_cr": 0.0, "p80_outflow_buffer_cr": 0.0, "p90_outflow_buffer_cr": 0.0, "p95_outflow_buffer_cr": 0.0}, {"category": "Liquid Funds", "target_col": "liquid_net_flow_cr", "horizon_month": 2, "in_3m_challenge_window": true, "date": "2026-11-30", "year_month": "2026-11", "month": 11, "is_advance_tax_month": 0, "point_forecast_cr": -14821.06, "ci80_lower_cr": -42450.52, "ci80_upper_cr": 12986.17, "ci95_lower_cr": -61511.13, "ci95_upper_cr": 33240.29, "q25_flow_cr": -29294.13, "sarimax_point_cr": -16866.38, "seasonal_naive_point_cr": -9589.58, "expected_outflow_cr": 14821.06, "optimal_q75_outflow_buffer_cr": 29294.13, "p80_outflow_buffer_cr": 34556.68, "p90_outflow_buffer_cr": 42450.52, "p95_outflow_buffer_cr": 51980.82}, {"category": "Liquid Funds", "target_col": "liquid_net_flow_cr", "horizon_month": 3, "in_3m_challenge_window": true, "date": "2026-12-31", "year_month": "2026-12", "month": 12, "is_advance_tax_month": 1, "point_forecast_cr": -90269.92, "ci80_lower_cr": -116217.59, "ci80_upper_cr": -64254.45, "ci95_lower_cr": -134153.12, "ci95_upper_cr": -45024.96, "q25_flow_cr": -103503.36, "sarimax_point_cr": -85586.94, "seasonal_naive_point_cr": -103228.33, "expected_outflow_cr": 90269.92, "optimal_q75_outflow_buffer_cr": 103503.36, "p80_outflow_buffer_cr": 108589.05, "p90_outflow_buffer_cr": 116217.59, "p95_outflow_buffer_cr": 125185.35}, {"category": "Liquid Funds", "target_col": "liquid_net_flow_cr", "horizon_month": 4, "in_3m_challenge_window": false, "date": "2027-01-31", "year_month": "2027-01", "month": 1, "is_advance_tax_month": 0, "point_forecast_cr": 96237.55, "ci80_lower_cr": 69050.52, "ci80_upper_cr": 123463.68, "ci95_lower_cr": 50569.02, "ci95_upper_cr": 143510.4, "q25_flow_cr": 82490.98, "sarimax_point_cr": 90006.07, "seasonal_naive_point_cr": 105087.23, "expected_outflow_cr": 0.0, "optimal_q75_outflow_buffer_cr": 0.0, "p80_outflow_buffer_cr": 0.0, "p90_outflow_buffer_cr": 0.0, "p95_outflow_buffer_cr": 0.0}, {"category": "Liquid Funds", "target_col": "liquid_net_flow_cr", "horizon_month": 5, "in_3m_challenge_window": false, "date": "2027-02-28", "year_month": "2027-02", "month": 2, "is_advance_tax_month": 0, "point_forecast_cr": 46830.0, "ci80_lower_cr": 19940.16, "ci80_upper_cr": 73766.11, "ci95_lower_cr": 1635.99, "ci95_upper_cr": 93460.89, "q25_flow_cr": 33332.09, "sarimax_point_cr": 40678.67, "seasonal_naive_point_cr": 59077.0, "expected_outflow_cr": 0.0, "optimal_q75_outflow_buffer_cr": 0.0, "p80_outflow_buffer_cr": 0.0, "p90_outflow_buffer_cr": 0.0, "p95_outflow_buffer_cr": 0.0}, {"category": "Liquid Funds", "target_col": "liquid_net_flow_cr", "horizon_month": 6, "in_3m_challenge_window": false, "date": "2027-03-31", "year_month": "2027-03", "month": 3, "is_advance_tax_month": 1, "point_forecast_cr": -139493.39, "ci80_lower_cr": -164582.47, "ci80_upper_cr": -114220.82, "ci95_lower_cr": -181851.24, "ci95_upper_cr": -95953.78, "q25_flow_cr": -152052.95, "sarimax_point_cr": -141406.06, "seasonal_naive_point_cr": -134988.0, "expected_outflow_cr": 139493.39, "optimal_q75_outflow_buffer_cr": 152052.95, "p80_outflow_buffer_cr": 157064.76, "p90_outflow_buffer_cr": 164582.47, "p95_outflow_buffer_cr": 173216.86}, {"category": "Overnight Funds", "target_col": "overnight_net_flow_cr", "horizon_month": 1, "in_3m_challenge_window": true, "date": "2026-10-31", "year_month": "2026-10", "month": 10, "is_advance_tax_month": 0, "point_forecast_cr": 12541.95, "ci80_lower_cr": -2269.6, "ci80_upper_cr": 28011.5, "ci95_lower_cr": -12786.11, "ci95_upper_cr": 40917.43, "q25_flow_cr": 4761.63, "sarimax_point_cr": 12014.84, "seasonal_naive_point_cr": 19209.49, "expected_outflow_cr": 0.0, "optimal_q75_outflow_buffer_cr": 0.0, "p80_outflow_buffer_cr": 0.0, "p90_outflow_buffer_cr": 2269.6, "p95_outflow_buffer_cr": 7527.85}, {"category": "Overnight Funds", "target_col": "overnight_net_flow_cr", "horizon_month": 2, "in_3m_challenge_window": true, "date": "2026-11-30", "year_month": "2026-11", "month": 11, "is_advance_tax_month": 0, "point_forecast_cr": -8587.8, "ci80_lower_cr": -23133.5, "ci80_upper_cr": 6505.47, "ci95_lower_cr": -33490.47, "ci95_upper_cr": 19325.68, "q25_flow_cr": -16194.08, "sarimax_point_cr": -9011.83, "seasonal_naive_point_cr": -3130.06, "expected_outflow_cr": 8587.8, "optimal_q75_outflow_buffer_cr": 16194.08, "p80_outflow_buffer_cr": 18969.84, "p90_outflow_buffer_cr": 23133.5, "p95_outflow_buffer_cr": 28311.98}, {"category": "Overnight Funds", "target_col": "overnight_net_flow_cr", "horizon_month": 3, "in_3m_challenge_window": true, "date": "2026-12-31", "year_month": "2026-12", "month": 12, "is_advance_tax_month": 1, "point_forecast_cr": -10423.08, "ci80_lower_cr": -26252.56, "ci80_upper_cr": 5945.24, "ci95_lower_cr": -37461.27, "ci95_upper_cr": 19615.84, "q25_flow_cr": -18661.17, "sarimax_point_cr": -12390.46, "seasonal_naive_point_cr": 254.25, "expected_outflow_cr": 10423.08, "optimal_q75_outflow_buffer_cr": 18661.17, "p80_outflow_buffer_cr": 21697.73, "p90_outflow_buffer_cr": 26252.56, "p95_outflow_buffer_cr": 31856.92}, {"category": "Overnight Funds", "target_col": "overnight_net_flow_cr", "horizon_month": 4, "in_3m_challenge_window": false, "date": "2027-01-31", "year_month": "2027-01", "month": 1, "is_advance_tax_month": 0, "point_forecast_cr": 15723.4, "ci80_lower_cr": 1625.35, "ci80_upper_cr": 30526.15, "ci95_lower_cr": -8952.24, "ci95_upper_cr": 43164.37, "q25_flow_cr": 8487.93, "sarimax_point_cr": 14041.35, "seasonal_naive_point_cr": 20963.89, "expected_outflow_cr": 0.0, "optimal_q75_outflow_buffer_cr": 0.0, "p80_outflow_buffer_cr": 0.0, "p90_outflow_buffer_cr": 0.0, "p95_outflow_buffer_cr": 3663.45}, {"category": "Overnight Funds", "target_col": "overnight_net_flow_cr", "horizon_month": 5, "in_3m_challenge_window": false, "date": "2027-02-28", "year_month": "2027-02", "month": 2, "is_advance_tax_month": 0, "point_forecast_cr": -13032.16, "ci80_lower_cr": -27115.49, "ci80_upper_cr": 1650.71, "ci95_lower_cr": -37690.54, "ci95_upper_cr": 14330.02, "q25_flow_cr": -20268.42, "sarimax_point_cr": -12250.75, "seasonal_naive_point_cr": -14006.0, "expected_outflow_cr": 13032.16, "optimal_q75_outflow_buffer_cr": 20268.42, "p80_outflow_buffer_cr": 23007.25, "p90_outflow_buffer_cr": 27115.49, "p95_outflow_buffer_cr": 32403.02}, {"category": "Overnight Funds", "target_col": "overnight_net_flow_cr", "horizon_month": 6, "in_3m_challenge_window": false, "date": "2027-03-31", "year_month": "2027-03", "month": 3, "is_advance_tax_month": 1, "point_forecast_cr": -39970.11, "ci80_lower_cr": -54882.85, "ci80_upper_cr": -24699.19, "ci95_lower_cr": -65908.73, "ci95_upper_cr": -11229.41, "q25_flow_cr": -47631.41, "sarimax_point_cr": -38978.32, "seasonal_naive_point_cr": -40228.0, "expected_outflow_cr": 39970.11, "optimal_q75_outflow_buffer_cr": 47631.41, "p80_outflow_buffer_cr": 50531.99, "p90_outflow_buffer_cr": 54882.85, "p95_outflow_buffer_cr": 60395.79}, {"category": "Combined (Liquid + Overnight)", "target_col": "combined_net_flow_cr", "horizon_month": 1, "in_3m_challenge_window": true, "date": "2026-10-31", "year_month": "2026-10", "month": 10, "is_advance_tax_month": 0, "point_forecast_cr": 102450.68, "ci80_lower_cr": 69119.13, "ci80_upper_cr": 137957.92, "ci95_lower_cr": 44066.31, "ci95_upper_cr": 160839.69, "q25_flow_cr": 85712.62, "sarimax_point_cr": 101716.89, "seasonal_naive_point_cr": 108584.49, "expected_outflow_cr": 0.0, "optimal_q75_outflow_buffer_cr": 0.0, "p80_outflow_buffer_cr": 0.0, "p90_outflow_buffer_cr": 0.0, "p95_outflow_buffer_cr": 0.0}, {"category": "Combined (Liquid + Overnight)", "target_col": "combined_net_flow_cr", "horizon_month": 2, "in_3m_challenge_window": true, "date": "2026-11-30", "year_month": "2026-11", "month": 11, "is_advance_tax_month": 0, "point_forecast_cr": -24343.24, "ci80_lower_cr": -57021.08, "ci80_upper_cr": 10642.0, "ci95_lower_cr": -81831.44, "ci95_upper_cr": 33186.1, "q25_flow_cr": -40864.18, "sarimax_point_cr": -26667.83, "seasonal_naive_point_cr": -12719.64, "expected_outflow_cr": 24343.24, "optimal_q75_outflow_buffer_cr": 40864.18, "p80_outflow_buffer_cr": 47326.94, "p90_outflow_buffer_cr": 57021.08, "p95_outflow_buffer_cr": 69426.26}, {"category": "Combined (Liquid + Overnight)", "target_col": "combined_net_flow_cr", "horizon_month": 3, "in_3m_challenge_window": true, "date": "2026-12-31", "year_month": "2026-12", "month": 12, "is_advance_tax_month": 1, "point_forecast_cr": -100439.36, "ci80_lower_cr": -130559.63, "ci80_upper_cr": -68179.64, "ci95_lower_cr": -153803.17, "ci95_upper_cr": -47048.78, "q25_flow_cr": -114884.37, "sarimax_point_cr": -97728.61, "seasonal_naive_point_cr": -102974.08, "expected_outflow_cr": 100439.36, "optimal_q75_outflow_buffer_cr": 114884.37, "p80_outflow_buffer_cr": 121154.47, "p90_outflow_buffer_cr": 130559.63, "p95_outflow_buffer_cr": 142181.4}, {"category": "Combined (Liquid + Overnight)", "target_col": "combined_net_flow_cr", "horizon_month": 4, "in_3m_challenge_window": false, "date": "2027-01-31", "year_month": "2027-01", "month": 1, "is_advance_tax_month": 0, "point_forecast_cr": 110556.98, "ci80_lower_cr": 78662.86, "ci80_upper_cr": 144670.92, "ci95_lower_cr": 54772.09, "ci95_upper_cr": 166951.53, "q25_flow_cr": 95424.12, "sarimax_point_cr": 103684.37, "seasonal_naive_point_cr": 126051.12, "expected_outflow_cr": 0.0, "optimal_q75_outflow_buffer_cr": 0.0, "p80_outflow_buffer_cr": 0.0, "p90_outflow_buffer_cr": 0.0, "p95_outflow_buffer_cr": 0.0}, {"category": "Combined (Liquid + Overnight)", "target_col": "combined_net_flow_cr", "horizon_month": 5, "in_3m_challenge_window": false, "date": "2027-02-28", "year_month": "2027-02", "month": 2, "is_advance_tax_month": 0, "point_forecast_cr": 32578.69, "ci80_lower_cr": 1057.93, "ci80_upper_cr": 66372.03, "ci95_lower_cr": -22783.94, "ci95_upper_cr": 88470.57, "q25_flow_cr": 17613.37, "sarimax_point_cr": 26791.92, "seasonal_naive_point_cr": 45071.0, "expected_outflow_cr": 0.0, "optimal_q75_outflow_buffer_cr": 0.0, "p80_outflow_buffer_cr": 0.0, "p90_outflow_buffer_cr": 0.0, "p95_outflow_buffer_cr": 10863.0}, {"category": "Combined (Liquid + Overnight)", "target_col": "combined_net_flow_cr", "horizon_month": 6, "in_3m_challenge_window": false, "date": "2027-03-31", "year_month": "2027-03", "month": 3, "is_advance_tax_month": 1, "point_forecast_cr": -180361.32, "ci80_lower_cr": -209531.05, "ci80_upper_cr": -148826.32, "ci95_lower_cr": -232052.35, "ci95_upper_cr": -128252.57, "q25_flow_cr": -194115.23, "sarimax_point_cr": -181448.63, "seasonal_naive_point_cr": -175216.0, "expected_outflow_cr": 180361.32, "optimal_q75_outflow_buffer_cr": 194115.23, "p80_outflow_buffer_cr": 200281.56, "p90_outflow_buffer_cr": 209531.05, "p95_outflow_buffer_cr": 220791.7}], "policy_summary": [{"policy": "01. Naive Baseline (Last Year Same-Month Outflow)", "avg_buffer_cr": 48647.2, "avg_buffer_pct_aum": 3.51, "avg_idle_cash_cr": 9964.1, "avg_shortfall_cr": 1928.7, "shortfall_months_count": 4, "mean_weighted_loss_cr": 15750.2, "cum_idle_drag_cost_cr": 127.99, "cum_shortfall_penalty_cr": 75.4, "cum_24m_decision_cost_cr": 203.39, "avg_annualized_drag_bps": 0.87, "cost_reduction_vs_naive_pct": 0.0, "weighted_loss_reduction_vs_naive_pct": 0.0}, {"policy": "02. Static Historical 75th Pct Outflow Rule", "avg_buffer_cr": 51134.6, "avg_buffer_pct_aum": 3.5, "avg_idle_cash_cr": 29834.3, "avg_shortfall_cr": 19311.5, "shortfall_months_count": 7, "mean_weighted_loss_cr": 87768.7, "cum_idle_drag_cost_cr": 339.67, "cum_shortfall_penalty_cr": 965.38, "cum_24m_decision_cost_cr": 1305.05, "avg_annualized_drag_bps": 4.75, "cost_reduction_vs_naive_pct": -541.63, "weighted_loss_reduction_vs_naive_pct": -457.25}, {"policy": "03. Forecast Median Rule (50th Pct Outflow)", "avg_buffer_cr": 43677.3, "avg_buffer_pct_aum": 3.19, "avg_idle_cash_cr": 5312.4, "avg_shortfall_cr": 2246.9, "shortfall_months_count": 8, "mean_weighted_loss_cr": 12053.2, "cum_idle_drag_cost_cr": 62.01, "cum_shortfall_penalty_cr": 93.48, "cum_24m_decision_cost_cr": 155.49, "avg_annualized_drag_bps": 0.69, "cost_reduction_vs_naive_pct": 23.55, "weighted_loss_reduction_vs_naive_pct": 23.47}, {"policy": "04. Conservative Tail Rule (95th Pct Outflow)", "avg_buffer_cr": 58159.8, "avg_buffer_pct_aum": 4.26, "avg_idle_cash_cr": 17642.4, "avg_shortfall_cr": 94.4, "shortfall_months_count": 1, "mean_weighted_loss_cr": 17925.6, "cum_idle_drag_cost_cr": 238.25, "cum_shortfall_penalty_cr": 3.51, "cum_24m_decision_cost_cr": 241.76, "avg_annualized_drag_bps": 0.83, "cost_reduction_vs_naive_pct": -18.87, "weighted_loss_reduction_vs_naive_pct": -13.81}, {"policy": "05. Newsvendor Optimal Rule (75th Pct, c_u/c_o = 3:1)", "avg_buffer_cr": 49341.9, "avg_buffer_pct_aum": 3.61, "avg_idle_cash_cr": 9332.6, "avg_shortfall_cr": 602.5, "shortfall_months_count": 3, "mean_weighted_loss_cr": 11140.0, "cum_idle_drag_cost_cr": 119.94, "cum_shortfall_penalty_cr": 25.24, "cum_24m_decision_cost_cr": 145.18, "avg_annualized_drag_bps": 0.55, "cost_reduction_vs_naive_pct": 28.62, "weighted_loss_reduction_vs_naive_pct": 29.27}, {"policy": "06. CIO Recommended Policy (Regime-Adaptive 75p/78p)", "avg_buffer_cr": 48390.6, "avg_buffer_pct_aum": 3.55, "avg_idle_cash_cr": 8455.8, "avg_shortfall_cr": 677.0, "shortfall_months_count": 3, "mean_weighted_loss_cr": 10486.8, "cum_idle_drag_cost_cr": 112.74, "cum_shortfall_penalty_cr": 27.04, "cum_24m_decision_cost_cr": 139.78, "avg_annualized_drag_bps": 0.51, "cost_reduction_vs_naive_pct": 31.28, "weighted_loss_reduction_vs_naive_pct": 33.42}], "scheme_recommendations": [{"year_month": "2026-10", "date": "2026-10-31", "month": 10, "regime": "Qtr-Start Rebound", "combined_point_flow_cr": 102450.68, "combined_ci80_cr": "[69,119, 137,958]", "combined_ci95_cr": "[44,066, 160,840]", "liquid_point_flow_cr": 89950.42, "rec_combined_buffer_cr": 1756.7, "p95_combined_buffer_cr": 1756.7, "rec_liquid_buffer_cr": 1564.6, "p95_liquid_buffer_cr": 1564.6, "rec_liquid_buffer_pct_aum": 0.25, "p95_liquid_buffer_pct_aum": 0.25, "scheme_25k_rec_buffer_cr": 62.5, "scheme_25k_p95_buffer_cr": 62.5}, {"year_month": "2026-11", "date": "2026-11-30", "month": 11, "regime": "Mid-Quarter Normal", "combined_point_flow_cr": -24343.24, "combined_ci80_cr": "[-57,021, 10,642]", "combined_ci95_cr": "[-81,831, 33,186]", "liquid_point_flow_cr": -14821.06, "rec_combined_buffer_cr": 40864.2, "p95_combined_buffer_cr": 69426.3, "rec_liquid_buffer_cr": 29294.1, "p95_liquid_buffer_cr": 51980.8, "rec_liquid_buffer_pct_aum": 4.68, "p95_liquid_buffer_pct_aum": 8.31, "scheme_25k_rec_buffer_cr": 1170.2, "scheme_25k_p95_buffer_cr": 2076.4}, {"year_month": "2026-12", "date": "2026-12-31", "month": 12, "regime": "Advance-Tax + Qtr-End (15 Dec)", "combined_point_flow_cr": -100439.36, "combined_ci80_cr": "[-130,560, -68,180]", "combined_ci95_cr": "[-153,803, -47,049]", "liquid_point_flow_cr": -90269.92, "rec_combined_buffer_cr": 117705.9, "p95_combined_buffer_cr": 142181.4, "rec_liquid_buffer_cr": 105791.9, "p95_liquid_buffer_cr": 125185.4, "rec_liquid_buffer_pct_aum": 16.9, "p95_liquid_buffer_pct_aum": 20.0, "scheme_25k_rec_buffer_cr": 4225.9, "scheme_25k_p95_buffer_cr": 5000.6}, {"year_month": "2027-01", "date": "2027-01-31", "month": 1, "regime": "Qtr-Start Rebound", "combined_point_flow_cr": 110556.98, "combined_ci80_cr": "[78,663, 144,671]", "combined_ci95_cr": "[54,772, 166,952]", "liquid_point_flow_cr": 96237.55, "rec_combined_buffer_cr": 1756.7, "p95_combined_buffer_cr": 1756.7, "rec_liquid_buffer_cr": 1564.6, "p95_liquid_buffer_cr": 1564.6, "rec_liquid_buffer_pct_aum": 0.25, "p95_liquid_buffer_pct_aum": 0.25, "scheme_25k_rec_buffer_cr": 62.5, "scheme_25k_p95_buffer_cr": 62.5}, {"year_month": "2027-02", "date": "2027-02-28", "month": 2, "regime": "Mid-Quarter Normal", "combined_point_flow_cr": 32578.69, "combined_ci80_cr": "[1,058, 66,372]", "combined_ci95_cr": "[-22,784, 88,471]", "liquid_point_flow_cr": 46830.0, "rec_combined_buffer_cr": 1756.7, "p95_combined_buffer_cr": 10863.0, "rec_liquid_buffer_cr": 1564.6, "p95_liquid_buffer_cr": 1564.6, "rec_liquid_buffer_pct_aum": 0.25, "p95_liquid_buffer_pct_aum": 0.25, "scheme_25k_rec_buffer_cr": 62.5, "scheme_25k_p95_buffer_cr": 62.5}, {"year_month": "2027-03", "date": "2027-03-31", "month": 3, "regime": "Advance-Tax + FY-End (15 Mar)", "combined_point_flow_cr": -180361.32, "combined_ci80_cr": "[-209,531, -148,826]", "combined_ci95_cr": "[-232,052, -128,253]", "liquid_point_flow_cr": -139493.39, "rec_combined_buffer_cr": 196890.1, "p95_combined_buffer_cr": 220791.7, "rec_liquid_buffer_cr": 154308.3, "p95_liquid_buffer_cr": 173216.9, "rec_liquid_buffer_pct_aum": 24.66, "p95_liquid_buffer_pct_aum": 27.68, "scheme_25k_rec_buffer_cr": 6164.0, "scheme_25k_p95_buffer_cr": 6919.3}], "rolling_backtest_champion": [{"step": 1, "date": "2024-10-31", "year_month": "2024-10", "month": 10, "is_advance_tax_month": 0, "model": "Q-GBDT + Conformal (ML Champion)", "actual_cr": 97640.03, "point_forecast_cr": 83988.5, "q025_cr": 50705.82, "q10_cr": 64008.38, "q25_cr": 73619.76, "q50_cr": 83351.0, "q75_cr": 94314.22, "q90_cr": 104402.68, "q95_cr": 111600.8, "q975_cr": 118325.74, "spread_cp_overnight_bps": 57.0}, {"step": 2, "date": "2024-11-30", "year_month": "2024-11", "month": 11, "is_advance_tax_month": 0, "model": "Q-GBDT + Conformal (ML Champion)", "actual_cr": -41655.04, "point_forecast_cr": -45596.63, "q025_cr": -79983.96, "q10_cr": -65357.08, "q25_cr": -56292.14, "q50_cr": -46290.52, "q75_cr": -35154.14, "q90_cr": -24002.1, "q95_cr": -17649.6, "q975_cr": -11898.72, "spread_cp_overnight_bps": 56.0}, {"step": 3, "date": "2024-12-31", "year_month": "2024-12", "month": 12, "is_advance_tax_month": 1, "model": "Q-GBDT + Conformal (ML Champion)", "actual_cr": -115864.26, "point_forecast_cr": -115353.64, "q025_cr": -148375.55, "q10_cr": -134403.89, "q25_cr": -125595.63, "q50_cr": -115966.5, "q75_cr": -105554.66, "q90_cr": -96113.14, "q95_cr": -89018.54, "q975_cr": -83972.82, "spread_cp_overnight_bps": 78.0}, {"step": 4, "date": "2025-01-31", "year_month": "2025-01", "month": 1, "is_advance_tax_month": 0, "model": "Q-GBDT + Conformal (ML Champion)", "actual_cr": 115709.7, "point_forecast_cr": 107112.15, "q025_cr": 75966.35, "q10_cr": 89241.56, "q25_cr": 97517.35, "q50_cr": 106514.02, "q75_cr": 116394.59, "q90_cr": 125263.36, "q95_cr": 131992.66, "q975_cr": 136680.66, "spread_cp_overnight_bps": 49.0}, {"step": 5, "date": "2025-02-28", "year_month": "2025-02", "month": 2, "is_advance_tax_month": 0, "model": "Q-GBDT + Conformal (ML Champion)", "actual_cr": 29098.31, "point_forecast_cr": 18630.19, "q025_cr": -12199.11, "q10_cr": 768.4, "q25_cr": 9292.78, "q50_cr": 18036.81, "q75_cr": 27916.08, "q90_cr": 36669.29, "q95_cr": 42692.27, "q975_cr": 47555.38, "spread_cp_overnight_bps": 60.0}, {"step": 6, "date": "2025-03-31", "year_month": "2025-03", "month": 3, "is_advance_tax_month": 1, "model": "Q-GBDT + Conformal (ML Champion)", "actual_cr": -182442.33, "point_forecast_cr": -179742.19, "q025_cr": -212803.07, "q10_cr": -199016.47, "q25_cr": -189746.4, "q50_cr": -179621.15, "q75_cr": -169386.65, "q90_cr": -160464.63, "q95_cr": -154707.54, "q975_cr": -148829.48, "spread_cp_overnight_bps": 87.0}, {"step": 7, "date": "2025-04-30", "year_month": "2025-04", "month": 4, "is_advance_tax_month": 0, "model": "Q-GBDT + Conformal (ML Champion)", "actual_cr": 178627.75, "point_forecast_cr": 162534.25, "q025_cr": 133233.47, "q10_cr": 144546.0, "q25_cr": 152936.42, "q50_cr": 161777.84, "q75_cr": 171866.96, "q90_cr": 180685.83, "q95_cr": 185649.52, "q975_cr": 190849.26, "spread_cp_overnight_bps": 57.0}, {"step": 8, "date": "2025-05-31", "year_month": "2025-05", "month": 5, "is_advance_tax_month": 0, "model": "Q-GBDT + Conformal (ML Champion)", "actual_cr": -14618.49, "point_forecast_cr": -21775.58, "q025_cr": -51511.03, "q10_cr": -40589.4, "q25_cr": -31366.55, "q50_cr": -21716.08, "q75_cr": -12489.54, "q90_cr": -3263.95, "q95_cr": 2077.69, "q975_cr": 8195.23, "spread_cp_overnight_bps": 56.0}, {"step": 9, "date": "2025-06-30", "year_month": "2025-06", "month": 6, "is_advance_tax_month": 1, "model": "Q-GBDT + Conformal (ML Champion)", "actual_cr": -57215.06, "point_forecast_cr": -54003.79, "q025_cr": -85035.66, "q10_cr": -73656.76, "q25_cr": -63590.02, "q50_cr": -53422.68, "q75_cr": -44402.53, "q90_cr": -34650.74, "q95_cr": -29143.97, "q975_cr": -22843.98, "spread_cp_overnight_bps": 83.0}, {"step": 10, "date": "2025-07-31", "year_month": "2025-07", "month": 7, "is_advance_tax_month": 0, "model": "Q-GBDT + Conformal (ML Champion)", "actual_cr": 126608.06, "point_forecast_cr": 110134.12, "q025_cr": 81146.62, "q10_cr": 91684.83, "q25_cr": 100914.29, "q50_cr": 110751.89, "q75_cr": 119167.69, "q90_cr": 128213.25, "q95_cr": 133694.03, "q975_cr": 139589.08, "spread_cp_overnight_bps": 60.0}, {"step": 11, "date": "2025-08-31", "year_month": "2025-08", "month": 8, "is_advance_tax_month": 0, "model": "Q-GBDT + Conformal (ML Champion)", "actual_cr": 15754.77, "point_forecast_cr": 13914.7, "q025_cr": -15161.8, "q10_cr": -4799.65, "q25_cr": 4334.8, "q50_cr": 14798.64, "q75_cr": 23275.07, "q90_cr": 32238.05, "q95_cr": 37661.15, "q975_cr": 43176.62, "spread_cp_overnight_bps": 64.0}, {"step": 12, "date": "2025-09-30", "year_month": "2025-09", "month": 9, "is_advance_tax_month": 1, "model": "Q-GBDT + Conformal (ML Champion)", "actual_cr": -75236.07, "point_forecast_cr": -102982.11, "q025_cr": -134767.09, "q10_cr": -123153.91, "q25_cr": -112708.91, "q50_cr": -102096.18, "q75_cr": -92828.83, "q90_cr": -83039.0, "q95_cr": -77174.26, "q975_cr": -71055.06, "spread_cp_overnight_bps": 63.0}, {"step": 13, "date": "2025-10-31", "year_month": "2025-10", "month": 10, "is_advance_tax_month": 0, "model": "Q-GBDT + Conformal (ML Champion)", "actual_cr": 108584.49, "point_forecast_cr": 110505.18, "q025_cr": 79196.13, "q10_cr": 90366.14, "q25_cr": 100027.22, "q50_cr": 110485.35, "q75_cr": 120062.55, "q90_cr": 130684.23, "q95_cr": 136084.04, "q975_cr": 141804.77, "spread_cp_overnight_bps": 56.0}, {"step": 14, "date": "2025-11-30", "year_month": "2025-11", "month": 11, "is_advance_tax_month": 0, "model": "Q-GBDT + Conformal (ML Champion)", "actual_cr": -12719.64, "point_forecast_cr": -16526.15, "q025_cr": -47671.81, "q10_cr": -36689.12, "q25_cr": -26752.08, "q50_cr": -16405.61, "q75_cr": -6901.9, "q90_cr": 3415.25, "q95_cr": 9215.39, "q975_cr": 14734.27, "spread_cp_overnight_bps": 58.0}, {"step": 15, "date": "2025-12-31", "year_month": "2025-12", "month": 12, "is_advance_tax_month": 1, "model": "Q-GBDT + Conformal (ML Champion)", "actual_cr": -102974.08, "point_forecast_cr": -102237.61, "q025_cr": -142591.62, "q10_cr": -128095.83, "q25_cr": -115315.72, "q50_cr": -102382.31, "q75_cr": -89922.47, "q90_cr": -76665.56, "q95_cr": -68913.31, "q975_cr": -61588.08, "spread_cp_overnight_bps": 73.0}, {"step": 16, "date": "2026-01-31", "year_month": "2026-01", "month": 1, "is_advance_tax_month": 0, "model": "Q-GBDT + Conformal (ML Champion)", "actual_cr": 126051.12, "point_forecast_cr": 120239.86, "q025_cr": 90013.14, "q10_cr": 100731.89, "q25_cr": 110563.48, "q50_cr": 120164.63, "q75_cr": 129451.53, "q90_cr": 139713.81, "q95_cr": 145458.28, "q975_cr": 150749.41, "spread_cp_overnight_bps": 50.0}, {"step": 17, "date": "2026-02-28", "year_month": "2026-02", "month": 2, "is_advance_tax_month": 0, "model": "Q-GBDT + Conformal (ML Champion)", "actual_cr": 45071.0, "point_forecast_cr": 16295.94, "q025_cr": -13630.47, "q10_cr": -2926.87, "q25_cr": 6626.06, "q50_cr": 16141.75, "q75_cr": 25323.26, "q90_cr": 35636.63, "q95_cr": 41140.57, "q975_cr": 46561.92, "spread_cp_overnight_bps": 60.0}, {"step": 18, "date": "2026-03-31", "year_month": "2026-03", "month": 3, "is_advance_tax_month": 1, "model": "Q-GBDT + Conformal (ML Champion)", "actual_cr": -175216.0, "point_forecast_cr": -173187.4, "q025_cr": -215214.22, "q10_cr": -199659.26, "q25_cr": -187262.29, "q50_cr": -173727.21, "q75_cr": -160324.54, "q90_cr": -146480.24, "q95_cr": -136767.14, "q975_cr": -126315.7, "spread_cp_overnight_bps": 93.0}, {"step": 19, "date": "2026-04-30", "year_month": "2026-04", "month": 4, "is_advance_tax_month": 0, "model": "Q-GBDT + Conformal (ML Champion)", "actual_cr": 196420.0, "point_forecast_cr": 179690.92, "q025_cr": 143793.37, "q10_cr": 156949.57, "q25_cr": 167337.67, "q50_cr": 178895.36, "q75_cr": 190669.15, "q90_cr": 202236.4, "q95_cr": 210454.87, "q975_cr": 220743.23, "spread_cp_overnight_bps": 56.0}, {"step": 20, "date": "2026-05-31", "year_month": "2026-05", "month": 5, "is_advance_tax_month": 0, "model": "Q-GBDT + Conformal (ML Champion)", "actual_cr": -30124.77, "point_forecast_cr": -15402.98, "q025_cr": -51634.15, "q10_cr": -38289.69, "q25_cr": -27846.02, "q50_cr": -16255.02, "q75_cr": -4286.31, "q90_cr": 7897.7, "q95_cr": 17280.17, "q975_cr": 25696.98, "spread_cp_overnight_bps": 42.0}, {"step": 21, "date": "2026-06-30", "year_month": "2026-06", "month": 6, "is_advance_tax_month": 1, "model": "Q-GBDT + Conformal (ML Champion)", "actual_cr": -52872.58, "point_forecast_cr": -47431.11, "q025_cr": -87279.5, "q10_cr": -72879.48, "q25_cr": -61049.44, "q50_cr": -47979.9, "q75_cr": -35319.59, "q90_cr": -22552.42, "q95_cr": -11860.13, "q975_cr": -2652.01, "spread_cp_overnight_bps": 79.0}, {"step": 22, "date": "2026-07-31", "year_month": "2026-07", "month": 7, "is_advance_tax_month": 0, "model": "Q-GBDT + Conformal (ML Champion)", "actual_cr": 125047.91, "point_forecast_cr": 119625.79, "q025_cr": 81005.7, "q10_cr": 94713.66, "q25_cr": 106021.17, "q50_cr": 118877.76, "q75_cr": 131629.82, "q90_cr": 144101.19, "q95_cr": 154660.73, "q975_cr": 163490.04, "spread_cp_overnight_bps": 60.0}, {"step": 23, "date": "2026-08-31", "year_month": "2026-08", "month": 8, "is_advance_tax_month": 0, "model": "Q-GBDT + Conformal (ML Champion)", "actual_cr": -10719.96, "point_forecast_cr": 36068.82, "q025_cr": -2574.77, "q10_cr": 11060.77, "q25_cr": 22297.25, "q50_cr": 35278.88, "q75_cr": 48082.77, "q90_cr": 61024.42, "q95_cr": 70959.84, "q975_cr": 80317.51, "spread_cp_overnight_bps": 62.0}, {"step": 24, "date": "2026-09-30", "year_month": "2026-09", "month": 9, "is_advance_tax_month": 1, "model": "Q-GBDT + Conformal (ML Champion)", "actual_cr": -103024.4, "point_forecast_cr": -78086.07, "q025_cr": -124329.09, "q10_cr": -106656.83, "q25_cr": -93109.3, "q50_cr": -78819.91, "q75_cr": -63874.94, "q90_cr": -47890.71, "q95_cr": -37629.1, "q975_cr": -28139.24, "spread_cp_overnight_bps": 78.0}], "rolling_backtest_naive": [{"step": 1, "date": "2024-10-31", "year_month": "2024-10", "month": 10, "is_advance_tax_month": 0, "model": "Seasonal Naive (Classical)", "actual_cr": 97640.03, "point_forecast_cr": 81736.91, "q025_cr": 19627.91, "q10_cr": 41126.02, "q25_cr": 60363.11, "q50_cr": 81736.91, "q75_cr": 103110.71, "q90_cr": 122347.8, "q95_cr": 133860.43, "q975_cr": 143845.91, "spread_cp_overnight_bps": 57.0}, {"step": 2, "date": "2024-11-30", "year_month": "2024-11", "month": 11, "is_advance_tax_month": 0, "model": "Seasonal Naive (Classical)", "actual_cr": -41655.04, "point_forecast_cr": -44934.96, "q025_cr": -106863.59, "q10_cr": -85427.92, "q25_cr": -66246.69, "q50_cr": -44934.96, "q75_cr": -23623.23, "q90_cr": -4442.0, "q95_cr": 7037.19, "q975_cr": 16993.67, "spread_cp_overnight_bps": 56.0}, {"step": 3, "date": "2024-12-31", "year_month": "2024-12", "month": 12, "is_advance_tax_month": 1, "model": "Seasonal Naive (Classical)", "actual_cr": -115864.26, "point_forecast_cr": -115135.75, "q025_cr": -176572.76, "q10_cr": -155307.25, "q25_cr": -136278.3, "q50_cr": -115135.75, "q75_cr": -93993.2, "q90_cr": -74964.25, "q95_cr": -63576.18, "q975_cr": -53698.74, "spread_cp_overnight_bps": 78.0}, {"step": 4, "date": "2025-01-31", "year_month": "2025-01", "month": 1, "is_advance_tax_month": 0, "model": "Seasonal Naive (Classical)", "actual_cr": 115709.7, "point_forecast_cr": 105355.66, "q025_cr": 44444.9, "q10_cr": 65528.25, "q25_cr": 84394.21, "q50_cr": 105355.66, "q75_cr": 126317.11, "q90_cr": 145183.07, "q95_cr": 156473.58, "q975_cr": 166266.42, "spread_cp_overnight_bps": 49.0}, {"step": 5, "date": "2025-02-28", "year_month": "2025-02", "month": 2, "is_advance_tax_month": 0, "model": "Seasonal Naive (Classical)", "actual_cr": 29098.31, "point_forecast_cr": 7086.03, "q025_cr": -53492.42, "q10_cr": -32524.09, "q25_cr": -13761.06, "q50_cr": 7086.03, "q75_cr": 27933.12, "q90_cr": 46696.15, "q95_cr": 57925.06, "q975_cr": 67664.48, "spread_cp_overnight_bps": 60.0}, {"step": 6, "date": "2025-03-31", "year_month": "2025-03", "month": 3, "is_advance_tax_month": 1, "model": "Seasonal Naive (Classical)", "actual_cr": -182442.33, "point_forecast_cr": -202846.83, "q025_cr": -263466.89, "q10_cr": -242484.16, "q25_cr": -223708.24, "q50_cr": -202846.83, "q75_cr": -181985.42, "q90_cr": -163209.5, "q95_cr": -151972.87, "q975_cr": -142226.77, "spread_cp_overnight_bps": 87.0}, {"step": 7, "date": "2025-04-30", "year_month": "2025-04", "month": 4, "is_advance_tax_month": 0, "model": "Seasonal Naive (Classical)", "actual_cr": 178627.75, "point_forecast_cr": 162574.26, "q025_cr": 101992.87, "q10_cr": 122962.21, "q25_cr": 141726.16, "q50_cr": 162574.26, "q75_cr": 183422.36, "q90_cr": 202186.31, "q95_cr": 213415.77, "q975_cr": 223155.65, "spread_cp_overnight_bps": 57.0}, {"step": 8, "date": "2025-05-31", "year_month": "2025-05", "month": 5, "is_advance_tax_month": 0, "model": "Seasonal Naive (Classical)", "actual_cr": -14618.49, "point_forecast_cr": -35671.84, "q025_cr": -96059.82, "q10_cr": -75157.42, "q25_cr": -56453.38, "q50_cr": -35671.84, "q75_cr": -14890.3, "q90_cr": 3813.74, "q95_cr": 15007.35, "q975_cr": 24716.14, "spread_cp_overnight_bps": 56.0}, {"step": 9, "date": "2025-06-30", "year_month": "2025-06", "month": 6, "is_advance_tax_month": 1, "model": "Seasonal Naive (Classical)", "actual_cr": -57215.06, "point_forecast_cr": -66992.26, "q025_cr": -127342.0, "q10_cr": -106452.83, "q25_cr": -87760.64, "q50_cr": -66992.26, "q75_cr": -46223.88, "q90_cr": -27531.69, "q95_cr": -16345.16, "q975_cr": -6642.52, "spread_cp_overnight_bps": 83.0}, {"step": 10, "date": "2025-07-31", "year_month": "2025-07", "month": 7, "is_advance_tax_month": 0, "model": "Seasonal Naive (Classical)", "actual_cr": 126608.06, "point_forecast_cr": 82404.42, "q025_cr": 22406.69, "q10_cr": 43174.02, "q25_cr": 61757.18, "q50_cr": 82404.42, "q75_cr": 103051.66, "q90_cr": 121634.82, "q95_cr": 132756.1, "q975_cr": 142402.15, "spread_cp_overnight_bps": 60.0}, {"step": 11, "date": "2025-08-31", "year_month": "2025-08", "month": 8, "is_advance_tax_month": 0, "model": "Seasonal Naive (Classical)", "actual_cr": 15754.77, "point_forecast_cr": 2942.01, "q025_cr": -58123.06, "q10_cr": -36986.3, "q25_cr": -18072.54, "q50_cr": 2942.01, "q75_cr": 23956.56, "q90_cr": 42870.32, "q95_cr": 54189.43, "q975_cr": 64007.08, "spread_cp_overnight_bps": 64.0}, {"step": 12, "date": "2025-09-30", "year_month": "2025-09", "month": 9, "is_advance_tax_month": 1, "model": "Seasonal Naive (Classical)", "actual_cr": -75236.07, "point_forecast_cr": -121348.45, "q025_cr": -182105.8, "q10_cr": -161075.55, "q25_cr": -142257.1, "q50_cr": -121348.45, "q75_cr": -100439.8, "q90_cr": -81621.35, "q95_cr": -70359.28, "q975_cr": -60591.1, "spread_cp_overnight_bps": 63.0}, {"step": 13, "date": "2025-10-31", "year_month": "2025-10", "month": 10, "is_advance_tax_month": 0, "model": "Seasonal Naive (Classical)", "actual_cr": 108584.49, "point_forecast_cr": 97640.03, "q025_cr": 35816.46, "q10_cr": 57215.77, "q25_cr": 76364.45, "q50_cr": 97640.03, "q75_cr": 118915.61, "q90_cr": 138064.29, "q95_cr": 149524.0, "q975_cr": 159463.6, "spread_cp_overnight_bps": 56.0}, {"step": 14, "date": "2025-11-30", "year_month": "2025-11", "month": 11, "is_advance_tax_month": 0, "model": "Seasonal Naive (Classical)", "actual_cr": -12719.64, "point_forecast_cr": -41655.04, "q025_cr": -103119.94, "q10_cr": -81844.77, "q25_cr": -62807.18, "q50_cr": -41655.04, "q75_cr": -20502.9, "q90_cr": -1465.31, "q95_cr": 9927.93, "q975_cr": 19809.86, "spread_cp_overnight_bps": 58.0}, {"step": 15, "date": "2025-12-31", "year_month": "2025-12", "month": 12, "is_advance_tax_month": 1, "model": "Seasonal Naive (Classical)", "actual_cr": -102974.08, "point_forecast_cr": -115864.26, "q025_cr": -177462.98, "q10_cr": -156141.5, "q25_cr": -137062.46, "q50_cr": -115864.26, "q75_cr": -94666.06, "q90_cr": -75587.02, "q95_cr": -64168.98, "q975_cr": -54265.54, "spread_cp_overnight_bps": 73.0}, {"step": 16, "date": "2026-01-31", "year_month": "2026-01", "month": 1, "is_advance_tax_month": 0, "model": "Seasonal Naive (Classical)", "actual_cr": 126051.12, "point_forecast_cr": 115709.7, "q025_cr": 54435.21, "q10_cr": 75644.46, "q25_cr": 94623.08, "q50_cr": 115709.7, "q75_cr": 136796.32, "q90_cr": 155774.94, "q95_cr": 167132.87, "q975_cr": 176984.19, "spread_cp_overnight_bps": 50.0}, {"step": 17, "date": "2026-02-28", "year_month": "2026-02", "month": 2, "is_advance_tax_month": 0, "model": "Seasonal Naive (Classical)", "actual_cr": 45071.0, "point_forecast_cr": 29098.31, "q025_cr": -31815.83, "q10_cr": -10731.31, "q25_cr": 8135.7, "q50_cr": 29098.31, "q75_cr": 50060.92, "q90_cr": 68927.93, "q95_cr": 80219.07, "q975_cr": 90012.45, "spread_cp_overnight_bps": 60.0}, {"step": 18, "date": "2026-03-31", "year_month": "2026-03", "month": 3, "is_advance_tax_month": 1, "model": "Seasonal Naive (Classical)", "actual_cr": -175216.0, "point_forecast_cr": -182442.33, "q025_cr": -243099.09, "q10_cr": -222103.65, "q25_cr": -203316.37, "q50_cr": -182442.33, "q75_cr": -161568.29, "q90_cr": -142781.01, "q95_cr": -131537.57, "q975_cr": -121785.57, "spread_cp_overnight_bps": 93.0}, {"step": 19, "date": "2026-04-30", "year_month": "2026-04", "month": 4, "is_advance_tax_month": 0, "model": "Seasonal Naive (Classical)", "actual_cr": 196420.0, "point_forecast_cr": 178627.75, "q025_cr": 118358.05, "q10_cr": 139219.51, "q25_cr": 157886.91, "q50_cr": 178627.75, "q75_cr": 199368.59, "q90_cr": 218035.99, "q95_cr": 229207.67, "q975_cr": 238897.45, "spread_cp_overnight_bps": 56.0}, {"step": 20, "date": "2026-05-31", "year_month": "2026-05", "month": 5, "is_advance_tax_month": 0, "model": "Seasonal Naive (Classical)", "actual_cr": -30124.77, "point_forecast_cr": -14618.49, "q025_cr": -74675.04, "q10_cr": -53887.36, "q25_cr": -35285.98, "q50_cr": -14618.49, "q75_cr": 6049.0, "q90_cr": 24650.38, "q95_cr": 35782.56, "q975_cr": 45438.06, "spread_cp_overnight_bps": 42.0}, {"step": 21, "date": "2026-06-30", "year_month": "2026-06", "month": 6, "is_advance_tax_month": 1, "model": "Seasonal Naive (Classical)", "actual_cr": -52872.58, "point_forecast_cr": -57215.06, "q025_cr": -116982.72, "q10_cr": -96295.03, "q25_cr": -77783.13, "q50_cr": -57215.06, "q75_cr": -36646.99, "q90_cr": -18135.09, "q95_cr": -7056.46, "q975_cr": 2552.6, "spread_cp_overnight_bps": 79.0}, {"step": 22, "date": "2026-07-31", "year_month": "2026-07", "month": 7, "is_advance_tax_month": 0, "model": "Seasonal Naive (Classical)", "actual_cr": 125047.91, "point_forecast_cr": 126608.06, "q025_cr": 67229.17, "q10_cr": 87782.29, "q25_cr": 106173.78, "q50_cr": 126608.06, "q75_cr": 147042.34, "q90_cr": 165433.83, "q95_cr": 176440.4, "q975_cr": 185986.95, "spread_cp_overnight_bps": 60.0}, {"step": 23, "date": "2026-08-31", "year_month": "2026-08", "month": 8, "is_advance_tax_month": 0, "model": "Seasonal Naive (Classical)", "actual_cr": -10719.96, "point_forecast_cr": 15754.77, "q025_cr": -43227.14, "q10_cr": -22811.43, "q25_cr": -4542.9, "q50_cr": 15754.77, "q75_cr": 36052.44, "q90_cr": 54320.97, "q95_cr": 65253.95, "q975_cr": 74736.68, "spread_cp_overnight_bps": 62.0}, {"step": 24, "date": "2026-09-30", "year_month": "2026-09", "month": 9, "is_advance_tax_month": 1, "model": "Seasonal Naive (Classical)", "actual_cr": -103024.4, "point_forecast_cr": -75236.07, "q025_cr": -134193.98, "q10_cr": -113786.57, "q25_cr": -95525.48, "q50_cr": -75236.07, "q75_cr": -54946.66, "q90_cr": -36685.57, "q95_cr": -25757.04, "q975_cr": -16278.16, "spread_cp_overnight_bps": 78.0}], "policy_monthly_detail": [{"date": "2024-10-31", "year_month": "2024-10", "month": 10, "is_advance_tax_month": 0, "policy": "01. Naive Baseline (Last Year Same-Month Outflow)", "actual_net_flow_cr": 97640.03, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 7204.15, "buffer_pct_aum": 0.5, "idle_cash_cr": 7204.15, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 7204.15, "idle_yield_cost_cr": 3.422, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 3.422, "annualized_cost_bps": 0.28}, {"date": "2024-10-31", "year_month": "2024-10", "month": 10, "is_advance_tax_month": 0, "policy": "02. Static Historical 75th Pct Outflow Rule", "actual_net_flow_cr": 97640.03, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 48758.13, "buffer_pct_aum": 3.38, "idle_cash_cr": 48758.13, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 48758.13, "idle_yield_cost_cr": 23.16, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 23.16, "annualized_cost_bps": 1.93}, {"date": "2024-10-31", "year_month": "2024-10", "month": 10, "is_advance_tax_month": 0, "policy": "03. Forecast Median Rule (50th Pct Outflow)", "actual_net_flow_cr": 97640.03, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 7204.15, "buffer_pct_aum": 0.5, "idle_cash_cr": 7204.15, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 7204.15, "idle_yield_cost_cr": 3.422, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 3.422, "annualized_cost_bps": 0.28}, {"date": "2024-10-31", "year_month": "2024-10", "month": 10, "is_advance_tax_month": 0, "policy": "04. Conservative Tail Rule (95th Pct Outflow)", "actual_net_flow_cr": 97640.03, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 7204.15, "buffer_pct_aum": 0.5, "idle_cash_cr": 7204.15, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 7204.15, "idle_yield_cost_cr": 3.422, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 3.422, "annualized_cost_bps": 0.28}, {"date": "2024-10-31", "year_month": "2024-10", "month": 10, "is_advance_tax_month": 0, "policy": "05. Newsvendor Optimal Rule (75th Pct, c_u/c_o = 3:1)", "actual_net_flow_cr": 97640.03, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 7204.15, "buffer_pct_aum": 0.5, "idle_cash_cr": 7204.15, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 7204.15, "idle_yield_cost_cr": 3.422, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 3.422, "annualized_cost_bps": 0.28}, {"date": "2024-10-31", "year_month": "2024-10", "month": 10, "is_advance_tax_month": 0, "policy": "06. CIO Recommended Policy (Regime-Adaptive 75p/78p)", "actual_net_flow_cr": 97640.03, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 3602.08, "buffer_pct_aum": 0.25, "idle_cash_cr": 3602.08, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 3602.08, "idle_yield_cost_cr": 1.711, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 1.711, "annualized_cost_bps": 0.14}, {"date": "2024-11-30", "year_month": "2024-11", "month": 11, "is_advance_tax_month": 0, "policy": "01. Naive Baseline (Last Year Same-Month Outflow)", "actual_net_flow_cr": -41655.04, "actual_outflow_cr": 41655.04, "recommended_buffer_cr": 44934.96, "buffer_pct_aum": 3.14, "idle_cash_cr": 3279.92, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 3279.92, "idle_yield_cost_cr": 1.531, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 1.531, "annualized_cost_bps": 0.13}, {"date": "2024-11-30", "year_month": "2024-11", "month": 11, "is_advance_tax_month": 0, "policy": "02. Static Historical 75th Pct Outflow Rule", "actual_net_flow_cr": -41655.04, "actual_outflow_cr": 41655.04, "recommended_buffer_cr": 47640.21, "buffer_pct_aum": 3.33, "idle_cash_cr": 5985.17, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 5985.17, "idle_yield_cost_cr": 2.793, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 2.793, "annualized_cost_bps": 0.23}, {"date": "2024-11-30", "year_month": "2024-11", "month": 11, "is_advance_tax_month": 0, "policy": "03. Forecast Median Rule (50th Pct Outflow)", "actual_net_flow_cr": -41655.04, "actual_outflow_cr": 41655.04, "recommended_buffer_cr": 46290.52, "buffer_pct_aum": 3.24, "idle_cash_cr": 4635.48, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 4635.48, "idle_yield_cost_cr": 2.163, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 2.163, "annualized_cost_bps": 0.18}, {"date": "2024-11-30", "year_month": "2024-11", "month": 11, "is_advance_tax_month": 0, "policy": "04. Conservative Tail Rule (95th Pct Outflow)", "actual_net_flow_cr": -41655.04, "actual_outflow_cr": 41655.04, "recommended_buffer_cr": 72670.52, "buffer_pct_aum": 5.08, "idle_cash_cr": 31015.48, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 31015.48, "idle_yield_cost_cr": 14.474, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 14.474, "annualized_cost_bps": 1.21}, {"date": "2024-11-30", "year_month": "2024-11", "month": 11, "is_advance_tax_month": 0, "policy": "05. Newsvendor Optimal Rule (75th Pct, c_u/c_o = 3:1)", "actual_net_flow_cr": -41655.04, "actual_outflow_cr": 41655.04, "recommended_buffer_cr": 56292.14, "buffer_pct_aum": 3.94, "idle_cash_cr": 14637.1, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 14637.1, "idle_yield_cost_cr": 6.831, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 6.831, "annualized_cost_bps": 0.57}, {"date": "2024-11-30", "year_month": "2024-11", "month": 11, "is_advance_tax_month": 0, "policy": "06. CIO Recommended Policy (Regime-Adaptive 75p/78p)", "actual_net_flow_cr": -41655.04, "actual_outflow_cr": 41655.04, "recommended_buffer_cr": 56292.14, "buffer_pct_aum": 3.94, "idle_cash_cr": 14637.1, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 14637.1, "idle_yield_cost_cr": 6.831, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 6.831, "annualized_cost_bps": 0.57}, {"date": "2024-12-31", "year_month": "2024-12", "month": 12, "is_advance_tax_month": 1, "policy": "01. Naive Baseline (Last Year Same-Month Outflow)", "actual_net_flow_cr": -115864.26, "actual_outflow_cr": 115864.26, "recommended_buffer_cr": 115135.75, "buffer_pct_aum": 8.31, "idle_cash_cr": 0.0, "shortfall_cr": 728.51, "had_shortfall": 1, "weighted_flow_loss_cr": 2185.53, "idle_yield_cost_cr": 0.0, "shortfall_penalty_cost_cr": 1.421, "total_decision_cost_cr": 1.421, "annualized_cost_bps": 0.12}, {"date": "2024-12-31", "year_month": "2024-12", "month": 12, "is_advance_tax_month": 1, "policy": "02. Static Historical 75th Pct Outflow Rule", "actual_net_flow_cr": -115864.26, "actual_outflow_cr": 115864.26, "recommended_buffer_cr": 46522.28, "buffer_pct_aum": 3.36, "idle_cash_cr": 0.0, "shortfall_cr": 69341.98, "had_shortfall": 1, "weighted_flow_loss_cr": 208025.93, "idle_yield_cost_cr": 0.0, "shortfall_penalty_cost_cr": 135.217, "total_decision_cost_cr": 135.217, "annualized_cost_bps": 11.71}, {"date": "2024-12-31", "year_month": "2024-12", "month": 12, "is_advance_tax_month": 1, "policy": "03. Forecast Median Rule (50th Pct Outflow)", "actual_net_flow_cr": -115864.26, "actual_outflow_cr": 115864.26, "recommended_buffer_cr": 115966.5, "buffer_pct_aum": 8.37, "idle_cash_cr": 102.24, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 102.24, "idle_yield_cost_cr": 0.066, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 0.066, "annualized_cost_bps": 0.01}, {"date": "2024-12-31", "year_month": "2024-12", "month": 12, "is_advance_tax_month": 1, "policy": "04. Conservative Tail Rule (95th Pct Outflow)", "actual_net_flow_cr": -115864.26, "actual_outflow_cr": 115864.26, "recommended_buffer_cr": 141389.72, "buffer_pct_aum": 10.2, "idle_cash_cr": 25525.46, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 25525.46, "idle_yield_cost_cr": 16.592, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 16.592, "annualized_cost_bps": 1.44}, {"date": "2024-12-31", "year_month": "2024-12", "month": 12, "is_advance_tax_month": 1, "policy": "05. Newsvendor Optimal Rule (75th Pct, c_u/c_o = 3:1)", "actual_net_flow_cr": -115864.26, "actual_outflow_cr": 115864.26, "recommended_buffer_cr": 125595.63, "buffer_pct_aum": 9.06, "idle_cash_cr": 9731.37, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 9731.37, "idle_yield_cost_cr": 6.325, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 6.325, "annualized_cost_bps": 0.55}, {"date": "2024-12-31", "year_month": "2024-12", "month": 12, "is_advance_tax_month": 1, "policy": "06. CIO Recommended Policy (Regime-Adaptive 75p/78p)", "actual_net_flow_cr": -115864.26, "actual_outflow_cr": 115864.26, "recommended_buffer_cr": 127181.12, "buffer_pct_aum": 9.18, "idle_cash_cr": 11316.86, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 11316.86, "idle_yield_cost_cr": 7.356, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 7.356, "annualized_cost_bps": 0.64}, {"date": "2025-01-31", "year_month": "2025-01", "month": 1, "is_advance_tax_month": 0, "policy": "01. Naive Baseline (Last Year Same-Month Outflow)", "actual_net_flow_cr": 115709.7, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 7228.97, "buffer_pct_aum": 0.5, "idle_cash_cr": 7228.97, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 7228.97, "idle_yield_cost_cr": 2.952, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 2.952, "annualized_cost_bps": 0.25}, {"date": "2025-01-31", "year_month": "2025-01", "month": 1, "is_advance_tax_month": 0, "policy": "02. Static Historical 75th Pct Outflow Rule", "actual_net_flow_cr": 115709.7, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 49876.05, "buffer_pct_aum": 3.45, "idle_cash_cr": 49876.05, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 49876.05, "idle_yield_cost_cr": 20.366, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 20.366, "annualized_cost_bps": 1.69}, {"date": "2025-01-31", "year_month": "2025-01", "month": 1, "is_advance_tax_month": 0, "policy": "03. Forecast Median Rule (50th Pct Outflow)", "actual_net_flow_cr": 115709.7, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 7228.97, "buffer_pct_aum": 0.5, "idle_cash_cr": 7228.97, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 7228.97, "idle_yield_cost_cr": 2.952, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 2.952, "annualized_cost_bps": 0.25}, {"date": "2025-01-31", "year_month": "2025-01", "month": 1, "is_advance_tax_month": 0, "policy": "04. Conservative Tail Rule (95th Pct Outflow)", "actual_net_flow_cr": 115709.7, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 7228.97, "buffer_pct_aum": 0.5, "idle_cash_cr": 7228.97, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 7228.97, "idle_yield_cost_cr": 2.952, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 2.952, "annualized_cost_bps": 0.25}, {"date": "2025-01-31", "year_month": "2025-01", "month": 1, "is_advance_tax_month": 0, "policy": "05. Newsvendor Optimal Rule (75th Pct, c_u/c_o = 3:1)", "actual_net_flow_cr": 115709.7, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 7228.97, "buffer_pct_aum": 0.5, "idle_cash_cr": 7228.97, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 7228.97, "idle_yield_cost_cr": 2.952, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 2.952, "annualized_cost_bps": 0.25}, {"date": "2025-01-31", "year_month": "2025-01", "month": 1, "is_advance_tax_month": 0, "policy": "06. CIO Recommended Policy (Regime-Adaptive 75p/78p)", "actual_net_flow_cr": 115709.7, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 3614.48, "buffer_pct_aum": 0.25, "idle_cash_cr": 3614.48, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 3614.48, "idle_yield_cost_cr": 1.476, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 1.476, "annualized_cost_bps": 0.12}, {"date": "2025-02-28", "year_month": "2025-02", "month": 2, "is_advance_tax_month": 0, "policy": "01. Naive Baseline (Last Year Same-Month Outflow)", "actual_net_flow_cr": 29098.31, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 7332.97, "buffer_pct_aum": 0.5, "idle_cash_cr": 7332.97, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 7332.97, "idle_yield_cost_cr": 3.666, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 3.666, "annualized_cost_bps": 0.3}, {"date": "2025-02-28", "year_month": "2025-02", "month": 2, "is_advance_tax_month": 0, "policy": "02. Static Historical 75th Pct Outflow Rule", "actual_net_flow_cr": 29098.31, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 48758.13, "buffer_pct_aum": 3.32, "idle_cash_cr": 48758.13, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 48758.13, "idle_yield_cost_cr": 24.379, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 24.379, "annualized_cost_bps": 1.99}, {"date": "2025-02-28", "year_month": "2025-02", "month": 2, "is_advance_tax_month": 0, "policy": "03. Forecast Median Rule (50th Pct Outflow)", "actual_net_flow_cr": 29098.31, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 7332.97, "buffer_pct_aum": 0.5, "idle_cash_cr": 7332.97, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 7332.97, "idle_yield_cost_cr": 3.666, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 3.666, "annualized_cost_bps": 0.3}, {"date": "2025-02-28", "year_month": "2025-02", "month": 2, "is_advance_tax_month": 0, "policy": "04. Conservative Tail Rule (95th Pct Outflow)", "actual_net_flow_cr": 29098.31, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 7332.97, "buffer_pct_aum": 0.5, "idle_cash_cr": 7332.97, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 7332.97, "idle_yield_cost_cr": 3.666, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 3.666, "annualized_cost_bps": 0.3}, {"date": "2025-02-28", "year_month": "2025-02", "month": 2, "is_advance_tax_month": 0, "policy": "05. Newsvendor Optimal Rule (75th Pct, c_u/c_o = 3:1)", "actual_net_flow_cr": 29098.31, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 7332.97, "buffer_pct_aum": 0.5, "idle_cash_cr": 7332.97, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 7332.97, "idle_yield_cost_cr": 3.666, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 3.666, "annualized_cost_bps": 0.3}, {"date": "2025-02-28", "year_month": "2025-02", "month": 2, "is_advance_tax_month": 0, "policy": "06. CIO Recommended Policy (Regime-Adaptive 75p/78p)", "actual_net_flow_cr": 29098.31, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 3666.48, "buffer_pct_aum": 0.25, "idle_cash_cr": 3666.48, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 3666.48, "idle_yield_cost_cr": 1.833, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 1.833, "annualized_cost_bps": 0.15}, {"date": "2025-03-31", "year_month": "2025-03", "month": 3, "is_advance_tax_month": 1, "policy": "01. Naive Baseline (Last Year Same-Month Outflow)", "actual_net_flow_cr": -182442.33, "actual_outflow_cr": 182442.33, "recommended_buffer_cr": 202846.83, "buffer_pct_aum": 14.57, "idle_cash_cr": 20404.5, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 20404.5, "idle_yield_cost_cr": 14.793, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 14.793, "annualized_cost_bps": 1.27}, {"date": "2025-03-31", "year_month": "2025-03", "month": 3, "is_advance_tax_month": 1, "policy": "02. Static Historical 75th Pct Outflow Rule", "actual_net_flow_cr": -182442.33, "actual_outflow_cr": 182442.33, "recommended_buffer_cr": 47640.21, "buffer_pct_aum": 3.42, "idle_cash_cr": 0.0, "shortfall_cr": 134802.12, "had_shortfall": 1, "weighted_flow_loss_cr": 404406.38, "idle_yield_cost_cr": 0.0, "shortfall_penalty_cost_cr": 293.195, "total_decision_cost_cr": 293.195, "annualized_cost_bps": 25.27}, {"date": "2025-03-31", "year_month": "2025-03", "month": 3, "is_advance_tax_month": 1, "policy": "03. Forecast Median Rule (50th Pct Outflow)", "actual_net_flow_cr": -182442.33, "actual_outflow_cr": 182442.33, "recommended_buffer_cr": 179621.15, "buffer_pct_aum": 12.9, "idle_cash_cr": 0.0, "shortfall_cr": 2821.18, "had_shortfall": 1, "weighted_flow_loss_cr": 8463.54, "idle_yield_cost_cr": 0.0, "shortfall_penalty_cost_cr": 6.136, "total_decision_cost_cr": 6.136, "annualized_cost_bps": 0.53}, {"date": "2025-03-31", "year_month": "2025-03", "month": 3, "is_advance_tax_month": 1, "policy": "04. Conservative Tail Rule (95th Pct Outflow)", "actual_net_flow_cr": -182442.33, "actual_outflow_cr": 182442.33, "recommended_buffer_cr": 205909.77, "buffer_pct_aum": 14.79, "idle_cash_cr": 23467.44, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 23467.44, "idle_yield_cost_cr": 17.014, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 17.014, "annualized_cost_bps": 1.47}, {"date": "2025-03-31", "year_month": "2025-03", "month": 3, "is_advance_tax_month": 1, "policy": "05. Newsvendor Optimal Rule (75th Pct, c_u/c_o = 3:1)", "actual_net_flow_cr": -182442.33, "actual_outflow_cr": 182442.33, "recommended_buffer_cr": 189746.4, "buffer_pct_aum": 13.63, "idle_cash_cr": 7304.07, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 7304.07, "idle_yield_cost_cr": 5.295, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 5.295, "annualized_cost_bps": 0.46}, {"date": "2025-03-31", "year_month": "2025-03", "month": 3, "is_advance_tax_month": 1, "policy": "06. CIO Recommended Policy (Regime-Adaptive 75p/78p)", "actual_net_flow_cr": -182442.33, "actual_outflow_cr": 182442.33, "recommended_buffer_cr": 191415.01, "buffer_pct_aum": 13.75, "idle_cash_cr": 8972.68, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 8972.68, "idle_yield_cost_cr": 6.505, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 6.505, "annualized_cost_bps": 0.56}, {"date": "2025-04-30", "year_month": "2025-04", "month": 4, "is_advance_tax_month": 0, "policy": "01. Naive Baseline (Last Year Same-Month Outflow)", "actual_net_flow_cr": 178627.75, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 7399.39, "buffer_pct_aum": 0.5, "idle_cash_cr": 7399.39, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 7399.39, "idle_yield_cost_cr": 3.515, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 3.515, "annualized_cost_bps": 0.28}, {"date": "2025-04-30", "year_month": "2025-04", "month": 4, "is_advance_tax_month": 0, "policy": "02. Static Historical 75th Pct Outflow Rule", "actual_net_flow_cr": 178627.75, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 50901.3, "buffer_pct_aum": 3.44, "idle_cash_cr": 50901.3, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 50901.3, "idle_yield_cost_cr": 24.178, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 24.178, "annualized_cost_bps": 1.96}, {"date": "2025-04-30", "year_month": "2025-04", "month": 4, "is_advance_tax_month": 0, "policy": "03. Forecast Median Rule (50th Pct Outflow)", "actual_net_flow_cr": 178627.75, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 7399.39, "buffer_pct_aum": 0.5, "idle_cash_cr": 7399.39, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 7399.39, "idle_yield_cost_cr": 3.515, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 3.515, "annualized_cost_bps": 0.28}, {"date": "2025-04-30", "year_month": "2025-04", "month": 4, "is_advance_tax_month": 0, "policy": "04. Conservative Tail Rule (95th Pct Outflow)", "actual_net_flow_cr": 178627.75, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 7399.39, "buffer_pct_aum": 0.5, "idle_cash_cr": 7399.39, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 7399.39, "idle_yield_cost_cr": 3.515, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 3.515, "annualized_cost_bps": 0.28}, {"date": "2025-04-30", "year_month": "2025-04", "month": 4, "is_advance_tax_month": 0, "policy": "05. Newsvendor Optimal Rule (75th Pct, c_u/c_o = 3:1)", "actual_net_flow_cr": 178627.75, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 7399.39, "buffer_pct_aum": 0.5, "idle_cash_cr": 7399.39, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 7399.39, "idle_yield_cost_cr": 3.515, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 3.515, "annualized_cost_bps": 0.28}, {"date": "2025-04-30", "year_month": "2025-04", "month": 4, "is_advance_tax_month": 0, "policy": "06. CIO Recommended Policy (Regime-Adaptive 75p/78p)", "actual_net_flow_cr": 178627.75, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 3699.7, "buffer_pct_aum": 0.25, "idle_cash_cr": 3699.7, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 3699.7, "idle_yield_cost_cr": 1.757, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 1.757, "annualized_cost_bps": 0.14}, {"date": "2025-05-31", "year_month": "2025-05", "month": 5, "is_advance_tax_month": 0, "policy": "01. Naive Baseline (Last Year Same-Month Outflow)", "actual_net_flow_cr": -14618.49, "actual_outflow_cr": 14618.49, "recommended_buffer_cr": 35671.84, "buffer_pct_aum": 2.41, "idle_cash_cr": 21053.35, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 21053.35, "idle_yield_cost_cr": 9.825, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 9.825, "annualized_cost_bps": 0.8}, {"date": "2025-05-31", "year_month": "2025-05", "month": 5, "is_advance_tax_month": 0, "policy": "02. Static Historical 75th Pct Outflow Rule", "actual_net_flow_cr": -14618.49, "actual_outflow_cr": 14618.49, "recommended_buffer_cr": 49876.05, "buffer_pct_aum": 3.37, "idle_cash_cr": 35257.56, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 35257.56, "idle_yield_cost_cr": 16.454, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 16.454, "annualized_cost_bps": 1.33}, {"date": "2025-05-31", "year_month": "2025-05", "month": 5, "is_advance_tax_month": 0, "policy": "03. Forecast Median Rule (50th Pct Outflow)", "actual_net_flow_cr": -14618.49, "actual_outflow_cr": 14618.49, "recommended_buffer_cr": 21716.08, "buffer_pct_aum": 1.47, "idle_cash_cr": 7097.59, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 7097.59, "idle_yield_cost_cr": 3.312, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 3.312, "annualized_cost_bps": 0.27}, {"date": "2025-05-31", "year_month": "2025-05", "month": 5, "is_advance_tax_month": 0, "policy": "04. Conservative Tail Rule (95th Pct Outflow)", "actual_net_flow_cr": -14618.49, "actual_outflow_cr": 14618.49, "recommended_buffer_cr": 46050.21, "buffer_pct_aum": 3.11, "idle_cash_cr": 31431.72, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 31431.72, "idle_yield_cost_cr": 14.668, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 14.668, "annualized_cost_bps": 1.19}, {"date": "2025-05-31", "year_month": "2025-05", "month": 5, "is_advance_tax_month": 0, "policy": "05. Newsvendor Optimal Rule (75th Pct, c_u/c_o = 3:1)", "actual_net_flow_cr": -14618.49, "actual_outflow_cr": 14618.49, "recommended_buffer_cr": 31366.55, "buffer_pct_aum": 2.12, "idle_cash_cr": 16748.06, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 16748.06, "idle_yield_cost_cr": 7.816, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 7.816, "annualized_cost_bps": 0.63}, {"date": "2025-05-31", "year_month": "2025-05", "month": 5, "is_advance_tax_month": 0, "policy": "06. CIO Recommended Policy (Regime-Adaptive 75p/78p)", "actual_net_flow_cr": -14618.49, "actual_outflow_cr": 14618.49, "recommended_buffer_cr": 31366.55, "buffer_pct_aum": 2.12, "idle_cash_cr": 16748.06, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 16748.06, "idle_yield_cost_cr": 7.816, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 7.816, "annualized_cost_bps": 0.63}, {"date": "2025-06-30", "year_month": "2025-06", "month": 6, "is_advance_tax_month": 1, "policy": "01. Naive Baseline (Last Year Same-Month Outflow)", "actual_net_flow_cr": -57215.06, "actual_outflow_cr": 57215.06, "recommended_buffer_cr": 66992.26, "buffer_pct_aum": 4.58, "idle_cash_cr": 9777.2, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 9777.2, "idle_yield_cost_cr": 6.763, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 6.763, "annualized_cost_bps": 0.55}, {"date": "2025-06-30", "year_month": "2025-06", "month": 6, "is_advance_tax_month": 1, "policy": "02. Static Historical 75th Pct Outflow Rule", "actual_net_flow_cr": -57215.06, "actual_outflow_cr": 57215.06, "recommended_buffer_cr": 48758.13, "buffer_pct_aum": 3.33, "idle_cash_cr": 0.0, "shortfall_cr": 8456.93, "had_shortfall": 1, "weighted_flow_loss_cr": 25370.8, "idle_yield_cost_cr": 0.0, "shortfall_penalty_cost_cr": 17.548, "total_decision_cost_cr": 17.548, "annualized_cost_bps": 1.44}, {"date": "2025-06-30", "year_month": "2025-06", "month": 6, "is_advance_tax_month": 1, "policy": "03. Forecast Median Rule (50th Pct Outflow)", "actual_net_flow_cr": -57215.06, "actual_outflow_cr": 57215.06, "recommended_buffer_cr": 53422.68, "buffer_pct_aum": 3.65, "idle_cash_cr": 0.0, "shortfall_cr": 3792.38, "had_shortfall": 1, "weighted_flow_loss_cr": 11377.14, "idle_yield_cost_cr": 0.0, "shortfall_penalty_cost_cr": 7.869, "total_decision_cost_cr": 7.869, "annualized_cost_bps": 0.65}, {"date": "2025-06-30", "year_month": "2025-06", "month": 6, "is_advance_tax_month": 1, "policy": "04. Conservative Tail Rule (95th Pct Outflow)", "actual_net_flow_cr": -57215.06, "actual_outflow_cr": 57215.06, "recommended_buffer_cr": 79346.21, "buffer_pct_aum": 5.43, "idle_cash_cr": 22131.15, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 22131.15, "idle_yield_cost_cr": 15.307, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 15.307, "annualized_cost_bps": 1.26}, {"date": "2025-06-30", "year_month": "2025-06", "month": 6, "is_advance_tax_month": 1, "policy": "05. Newsvendor Optimal Rule (75th Pct, c_u/c_o = 3:1)", "actual_net_flow_cr": -57215.06, "actual_outflow_cr": 57215.06, "recommended_buffer_cr": 63590.02, "buffer_pct_aum": 4.35, "idle_cash_cr": 6374.96, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 6374.96, "idle_yield_cost_cr": 4.409, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 4.409, "annualized_cost_bps": 0.36}, {"date": "2025-06-30", "year_month": "2025-06", "month": 6, "is_advance_tax_month": 1, "policy": "06. CIO Recommended Policy (Regime-Adaptive 75p/78p)", "actual_net_flow_cr": -57215.06, "actual_outflow_cr": 57215.06, "recommended_buffer_cr": 65402.03, "buffer_pct_aum": 4.47, "idle_cash_cr": 8186.97, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 8186.97, "idle_yield_cost_cr": 5.663, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 5.663, "annualized_cost_bps": 0.46}, {"date": "2025-07-31", "year_month": "2025-07", "month": 7, "is_advance_tax_month": 0, "policy": "01. Naive Baseline (Last Year Same-Month Outflow)", "actual_net_flow_cr": 126608.06, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 7629.76, "buffer_pct_aum": 0.5, "idle_cash_cr": 7629.76, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 7629.76, "idle_yield_cost_cr": 3.815, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 3.815, "annualized_cost_bps": 0.3}, {"date": "2025-07-31", "year_month": "2025-07", "month": 7, "is_advance_tax_month": 0, "policy": "02. Static Historical 75th Pct Outflow Rule", "actual_net_flow_cr": 126608.06, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 51926.54, "buffer_pct_aum": 3.4, "idle_cash_cr": 51926.54, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 51926.54, "idle_yield_cost_cr": 25.963, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 25.963, "annualized_cost_bps": 2.04}, {"date": "2025-07-31", "year_month": "2025-07", "month": 7, "is_advance_tax_month": 0, "policy": "03. Forecast Median Rule (50th Pct Outflow)", "actual_net_flow_cr": 126608.06, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 7629.76, "buffer_pct_aum": 0.5, "idle_cash_cr": 7629.76, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 7629.76, "idle_yield_cost_cr": 3.815, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 3.815, "annualized_cost_bps": 0.3}, {"date": "2025-07-31", "year_month": "2025-07", "month": 7, "is_advance_tax_month": 0, "policy": "04. Conservative Tail Rule (95th Pct Outflow)", "actual_net_flow_cr": 126608.06, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 7629.76, "buffer_pct_aum": 0.5, "idle_cash_cr": 7629.76, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 7629.76, "idle_yield_cost_cr": 3.815, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 3.815, "annualized_cost_bps": 0.3}, {"date": "2025-07-31", "year_month": "2025-07", "month": 7, "is_advance_tax_month": 0, "policy": "05. Newsvendor Optimal Rule (75th Pct, c_u/c_o = 3:1)", "actual_net_flow_cr": 126608.06, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 7629.76, "buffer_pct_aum": 0.5, "idle_cash_cr": 7629.76, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 7629.76, "idle_yield_cost_cr": 3.815, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 3.815, "annualized_cost_bps": 0.3}, {"date": "2025-07-31", "year_month": "2025-07", "month": 7, "is_advance_tax_month": 0, "policy": "06. CIO Recommended Policy (Regime-Adaptive 75p/78p)", "actual_net_flow_cr": 126608.06, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 3814.88, "buffer_pct_aum": 0.25, "idle_cash_cr": 3814.88, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 3814.88, "idle_yield_cost_cr": 1.907, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 1.907, "annualized_cost_bps": 0.15}, {"date": "2025-08-31", "year_month": "2025-08", "month": 8, "is_advance_tax_month": 0, "policy": "01. Naive Baseline (Last Year Same-Month Outflow)", "actual_net_flow_cr": 15754.77, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 7701.36, "buffer_pct_aum": 0.5, "idle_cash_cr": 7701.36, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 7701.36, "idle_yield_cost_cr": 4.107, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 4.107, "annualized_cost_bps": 0.32}, {"date": "2025-08-31", "year_month": "2025-08", "month": 8, "is_advance_tax_month": 0, "policy": "02. Static Historical 75th Pct Outflow Rule", "actual_net_flow_cr": 15754.77, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 50901.3, "buffer_pct_aum": 3.3, "idle_cash_cr": 50901.3, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 50901.3, "idle_yield_cost_cr": 27.147, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 27.147, "annualized_cost_bps": 2.12}, {"date": "2025-08-31", "year_month": "2025-08", "month": 8, "is_advance_tax_month": 0, "policy": "03. Forecast Median Rule (50th Pct Outflow)", "actual_net_flow_cr": 15754.77, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 7701.36, "buffer_pct_aum": 0.5, "idle_cash_cr": 7701.36, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 7701.36, "idle_yield_cost_cr": 4.107, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 4.107, "annualized_cost_bps": 0.32}, {"date": "2025-08-31", "year_month": "2025-08", "month": 8, "is_advance_tax_month": 0, "policy": "04. Conservative Tail Rule (95th Pct Outflow)", "actual_net_flow_cr": 15754.77, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 9980.72, "buffer_pct_aum": 0.65, "idle_cash_cr": 9980.72, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 9980.72, "idle_yield_cost_cr": 5.323, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 5.323, "annualized_cost_bps": 0.41}, {"date": "2025-08-31", "year_month": "2025-08", "month": 8, "is_advance_tax_month": 0, "policy": "05. Newsvendor Optimal Rule (75th Pct, c_u/c_o = 3:1)", "actual_net_flow_cr": 15754.77, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 7701.36, "buffer_pct_aum": 0.5, "idle_cash_cr": 7701.36, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 7701.36, "idle_yield_cost_cr": 4.107, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 4.107, "annualized_cost_bps": 0.32}, {"date": "2025-08-31", "year_month": "2025-08", "month": 8, "is_advance_tax_month": 0, "policy": "06. CIO Recommended Policy (Regime-Adaptive 75p/78p)", "actual_net_flow_cr": 15754.77, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 7701.36, "buffer_pct_aum": 0.5, "idle_cash_cr": 7701.36, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 7701.36, "idle_yield_cost_cr": 4.107, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 4.107, "annualized_cost_bps": 0.32}, {"date": "2025-09-30", "year_month": "2025-09", "month": 9, "is_advance_tax_month": 1, "policy": "01. Naive Baseline (Last Year Same-Month Outflow)", "actual_net_flow_cr": -75236.07, "actual_outflow_cr": 75236.07, "recommended_buffer_cr": 121348.45, "buffer_pct_aum": 8.02, "idle_cash_cr": 46112.38, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 46112.38, "idle_yield_cost_cr": 24.209, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 24.209, "annualized_cost_bps": 1.92}, {"date": "2025-09-30", "year_month": "2025-09", "month": 9, "is_advance_tax_month": 1, "policy": "02. Static Historical 75th Pct Outflow Rule", "actual_net_flow_cr": -75236.07, "actual_outflow_cr": 75236.07, "recommended_buffer_cr": 49876.05, "buffer_pct_aum": 3.29, "idle_cash_cr": 0.0, "shortfall_cr": 25360.02, "had_shortfall": 1, "weighted_flow_loss_cr": 76080.06, "idle_yield_cost_cr": 0.0, "shortfall_penalty_cost_cr": 39.942, "total_decision_cost_cr": 39.942, "annualized_cost_bps": 3.17}, {"date": "2025-09-30", "year_month": "2025-09", "month": 9, "is_advance_tax_month": 1, "policy": "03. Forecast Median Rule (50th Pct Outflow)", "actual_net_flow_cr": -75236.07, "actual_outflow_cr": 75236.07, "recommended_buffer_cr": 102096.18, "buffer_pct_aum": 6.74, "idle_cash_cr": 26860.11, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 26860.11, "idle_yield_cost_cr": 14.102, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 14.102, "annualized_cost_bps": 1.12}, {"date": "2025-09-30", "year_month": "2025-09", "month": 9, "is_advance_tax_month": 1, "policy": "04. Conservative Tail Rule (95th Pct Outflow)", "actual_net_flow_cr": -75236.07, "actual_outflow_cr": 75236.07, "recommended_buffer_cr": 128960.5, "buffer_pct_aum": 8.52, "idle_cash_cr": 53724.43, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 53724.43, "idle_yield_cost_cr": 28.205, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 28.205, "annualized_cost_bps": 2.24}, {"date": "2025-09-30", "year_month": "2025-09", "month": 9, "is_advance_tax_month": 1, "policy": "05. Newsvendor Optimal Rule (75th Pct, c_u/c_o = 3:1)", "actual_net_flow_cr": -75236.07, "actual_outflow_cr": 75236.07, "recommended_buffer_cr": 112708.91, "buffer_pct_aum": 7.45, "idle_cash_cr": 37472.84, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 37472.84, "idle_yield_cost_cr": 19.673, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 19.673, "annualized_cost_bps": 1.56}, {"date": "2025-09-30", "year_month": "2025-09", "month": 9, "is_advance_tax_month": 1, "policy": "06. CIO Recommended Policy (Regime-Adaptive 75p/78p)", "actual_net_flow_cr": -75236.07, "actual_outflow_cr": 75236.07, "recommended_buffer_cr": 114589.01, "buffer_pct_aum": 7.57, "idle_cash_cr": 39352.94, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 39352.94, "idle_yield_cost_cr": 20.66, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 20.66, "annualized_cost_bps": 1.64}, {"date": "2025-10-31", "year_month": "2025-10", "month": 10, "is_advance_tax_month": 0, "policy": "01. Naive Baseline (Last Year Same-Month Outflow)", "actual_net_flow_cr": 108584.49, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 7848.44, "buffer_pct_aum": 0.5, "idle_cash_cr": 7848.44, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 7848.44, "idle_yield_cost_cr": 3.663, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 3.663, "annualized_cost_bps": 0.28}, {"date": "2025-10-31", "year_month": "2025-10", "month": 10, "is_advance_tax_month": 0, "policy": "02. Static Historical 75th Pct Outflow Rule", "actual_net_flow_cr": 108584.49, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 52951.79, "buffer_pct_aum": 3.37, "idle_cash_cr": 52951.79, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 52951.79, "idle_yield_cost_cr": 24.711, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 24.711, "annualized_cost_bps": 1.89}, {"date": "2025-10-31", "year_month": "2025-10", "month": 10, "is_advance_tax_month": 0, "policy": "03. Forecast Median Rule (50th Pct Outflow)", "actual_net_flow_cr": 108584.49, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 7848.44, "buffer_pct_aum": 0.5, "idle_cash_cr": 7848.44, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 7848.44, "idle_yield_cost_cr": 3.663, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 3.663, "annualized_cost_bps": 0.28}, {"date": "2025-10-31", "year_month": "2025-10", "month": 10, "is_advance_tax_month": 0, "policy": "04. Conservative Tail Rule (95th Pct Outflow)", "actual_net_flow_cr": 108584.49, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 7848.44, "buffer_pct_aum": 0.5, "idle_cash_cr": 7848.44, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 7848.44, "idle_yield_cost_cr": 3.663, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 3.663, "annualized_cost_bps": 0.28}, {"date": "2025-10-31", "year_month": "2025-10", "month": 10, "is_advance_tax_month": 0, "policy": "05. Newsvendor Optimal Rule (75th Pct, c_u/c_o = 3:1)", "actual_net_flow_cr": 108584.49, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 7848.44, "buffer_pct_aum": 0.5, "idle_cash_cr": 7848.44, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 7848.44, "idle_yield_cost_cr": 3.663, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 3.663, "annualized_cost_bps": 0.28}, {"date": "2025-10-31", "year_month": "2025-10", "month": 10, "is_advance_tax_month": 0, "policy": "06. CIO Recommended Policy (Regime-Adaptive 75p/78p)", "actual_net_flow_cr": 108584.49, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 3924.22, "buffer_pct_aum": 0.25, "idle_cash_cr": 3924.22, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 3924.22, "idle_yield_cost_cr": 1.831, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 1.831, "annualized_cost_bps": 0.14}, {"date": "2025-11-30", "year_month": "2025-11", "month": 11, "is_advance_tax_month": 0, "policy": "01. Naive Baseline (Last Year Same-Month Outflow)", "actual_net_flow_cr": -12719.64, "actual_outflow_cr": 12719.64, "recommended_buffer_cr": 41655.04, "buffer_pct_aum": 2.65, "idle_cash_cr": 28935.4, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 28935.4, "idle_yield_cost_cr": 13.985, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 13.985, "annualized_cost_bps": 1.07}, {"date": "2025-11-30", "year_month": "2025-11", "month": 11, "is_advance_tax_month": 0, "policy": "02. Static Historical 75th Pct Outflow Rule", "actual_net_flow_cr": -12719.64, "actual_outflow_cr": 12719.64, "recommended_buffer_cr": 51926.54, "buffer_pct_aum": 3.3, "idle_cash_cr": 39206.9, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 39206.9, "idle_yield_cost_cr": 18.95, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 18.95, "annualized_cost_bps": 1.45}, {"date": "2025-11-30", "year_month": "2025-11", "month": 11, "is_advance_tax_month": 0, "policy": "03. Forecast Median Rule (50th Pct Outflow)", "actual_net_flow_cr": -12719.64, "actual_outflow_cr": 12719.64, "recommended_buffer_cr": 16405.61, "buffer_pct_aum": 1.04, "idle_cash_cr": 3685.97, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 3685.97, "idle_yield_cost_cr": 1.782, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 1.782, "annualized_cost_bps": 0.14}, {"date": "2025-11-30", "year_month": "2025-11", "month": 11, "is_advance_tax_month": 0, "policy": "04. Conservative Tail Rule (95th Pct Outflow)", "actual_net_flow_cr": -12719.64, "actual_outflow_cr": 12719.64, "recommended_buffer_cr": 42180.46, "buffer_pct_aum": 2.68, "idle_cash_cr": 29460.82, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 29460.82, "idle_yield_cost_cr": 14.239, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 14.239, "annualized_cost_bps": 1.09}, {"date": "2025-11-30", "year_month": "2025-11", "month": 11, "is_advance_tax_month": 0, "policy": "05. Newsvendor Optimal Rule (75th Pct, c_u/c_o = 3:1)", "actual_net_flow_cr": -12719.64, "actual_outflow_cr": 12719.64, "recommended_buffer_cr": 26752.08, "buffer_pct_aum": 1.7, "idle_cash_cr": 14032.44, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 14032.44, "idle_yield_cost_cr": 6.782, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 6.782, "annualized_cost_bps": 0.52}, {"date": "2025-11-30", "year_month": "2025-11", "month": 11, "is_advance_tax_month": 0, "policy": "06. CIO Recommended Policy (Regime-Adaptive 75p/78p)", "actual_net_flow_cr": -12719.64, "actual_outflow_cr": 12719.64, "recommended_buffer_cr": 26752.08, "buffer_pct_aum": 1.7, "idle_cash_cr": 14032.44, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 14032.44, "idle_yield_cost_cr": 6.782, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 6.782, "annualized_cost_bps": 0.52}, {"date": "2025-12-31", "year_month": "2025-12", "month": 12, "is_advance_tax_month": 1, "policy": "01. Naive Baseline (Last Year Same-Month Outflow)", "actual_net_flow_cr": -102974.08, "actual_outflow_cr": 102974.08, "recommended_buffer_cr": 115864.26, "buffer_pct_aum": 7.56, "idle_cash_cr": 12890.18, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 12890.18, "idle_yield_cost_cr": 7.842, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 7.842, "annualized_cost_bps": 0.61}, {"date": "2025-12-31", "year_month": "2025-12", "month": 12, "is_advance_tax_month": 1, "policy": "02. Static Historical 75th Pct Outflow Rule", "actual_net_flow_cr": -102974.08, "actual_outflow_cr": 102974.08, "recommended_buffer_cr": 50901.3, "buffer_pct_aum": 3.32, "idle_cash_cr": 0.0, "shortfall_cr": 52072.78, "had_shortfall": 1, "weighted_flow_loss_cr": 156218.35, "idle_yield_cost_cr": 0.0, "shortfall_penalty_cost_cr": 95.033, "total_decision_cost_cr": 95.033, "annualized_cost_bps": 7.44}, {"date": "2025-12-31", "year_month": "2025-12", "month": 12, "is_advance_tax_month": 1, "policy": "03. Forecast Median Rule (50th Pct Outflow)", "actual_net_flow_cr": -102974.08, "actual_outflow_cr": 102974.08, "recommended_buffer_cr": 102382.31, "buffer_pct_aum": 6.68, "idle_cash_cr": 0.0, "shortfall_cr": 591.77, "had_shortfall": 1, "weighted_flow_loss_cr": 1775.31, "idle_yield_cost_cr": 0.0, "shortfall_penalty_cost_cr": 1.08, "total_decision_cost_cr": 1.08, "annualized_cost_bps": 0.08}, {"date": "2025-12-31", "year_month": "2025-12", "month": 12, "is_advance_tax_month": 1, "policy": "04. Conservative Tail Rule (95th Pct Outflow)", "actual_net_flow_cr": -102974.08, "actual_outflow_cr": 102974.08, "recommended_buffer_cr": 135343.73, "buffer_pct_aum": 8.83, "idle_cash_cr": 32369.65, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 32369.65, "idle_yield_cost_cr": 19.692, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 19.692, "annualized_cost_bps": 1.54}, {"date": "2025-12-31", "year_month": "2025-12", "month": 12, "is_advance_tax_month": 1, "policy": "05. Newsvendor Optimal Rule (75th Pct, c_u/c_o = 3:1)", "actual_net_flow_cr": -102974.08, "actual_outflow_cr": 102974.08, "recommended_buffer_cr": 115315.72, "buffer_pct_aum": 7.53, "idle_cash_cr": 12341.64, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 12341.64, "idle_yield_cost_cr": 7.508, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 7.508, "annualized_cost_bps": 0.59}, {"date": "2025-12-31", "year_month": "2025-12", "month": 12, "is_advance_tax_month": 1, "policy": "06. CIO Recommended Policy (Regime-Adaptive 75p/78p)", "actual_net_flow_cr": -102974.08, "actual_outflow_cr": 102974.08, "recommended_buffer_cr": 117616.14, "buffer_pct_aum": 7.68, "idle_cash_cr": 14642.06, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 14642.06, "idle_yield_cost_cr": 8.907, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 8.907, "annualized_cost_bps": 0.7}, {"date": "2026-01-31", "year_month": "2026-01", "month": 1, "is_advance_tax_month": 0, "policy": "01. Naive Baseline (Last Year Same-Month Outflow)", "actual_net_flow_cr": 126051.12, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 7978.71, "buffer_pct_aum": 0.5, "idle_cash_cr": 7978.71, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 7978.71, "idle_yield_cost_cr": 3.324, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 3.324, "annualized_cost_bps": 0.25}, {"date": "2026-01-31", "year_month": "2026-01", "month": 1, "is_advance_tax_month": 0, "policy": "02. Static Historical 75th Pct Outflow Rule", "actual_net_flow_cr": 126051.12, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 53977.04, "buffer_pct_aum": 3.38, "idle_cash_cr": 53977.04, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 53977.04, "idle_yield_cost_cr": 22.49, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 22.49, "annualized_cost_bps": 1.69}, {"date": "2026-01-31", "year_month": "2026-01", "month": 1, "is_advance_tax_month": 0, "policy": "03. Forecast Median Rule (50th Pct Outflow)", "actual_net_flow_cr": 126051.12, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 7978.71, "buffer_pct_aum": 0.5, "idle_cash_cr": 7978.71, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 7978.71, "idle_yield_cost_cr": 3.324, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 3.324, "annualized_cost_bps": 0.25}, {"date": "2026-01-31", "year_month": "2026-01", "month": 1, "is_advance_tax_month": 0, "policy": "04. Conservative Tail Rule (95th Pct Outflow)", "actual_net_flow_cr": 126051.12, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 7978.71, "buffer_pct_aum": 0.5, "idle_cash_cr": 7978.71, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 7978.71, "idle_yield_cost_cr": 3.324, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 3.324, "annualized_cost_bps": 0.25}, {"date": "2026-01-31", "year_month": "2026-01", "month": 1, "is_advance_tax_month": 0, "policy": "05. Newsvendor Optimal Rule (75th Pct, c_u/c_o = 3:1)", "actual_net_flow_cr": 126051.12, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 7978.71, "buffer_pct_aum": 0.5, "idle_cash_cr": 7978.71, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 7978.71, "idle_yield_cost_cr": 3.324, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 3.324, "annualized_cost_bps": 0.25}, {"date": "2026-01-31", "year_month": "2026-01", "month": 1, "is_advance_tax_month": 0, "policy": "06. CIO Recommended Policy (Regime-Adaptive 75p/78p)", "actual_net_flow_cr": 126051.12, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 3989.36, "buffer_pct_aum": 0.25, "idle_cash_cr": 3989.36, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 3989.36, "idle_yield_cost_cr": 1.662, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 1.662, "annualized_cost_bps": 0.13}, {"date": "2026-02-28", "year_month": "2026-02", "month": 2, "is_advance_tax_month": 0, "policy": "01. Naive Baseline (Last Year Same-Month Outflow)", "actual_net_flow_cr": 45071.0, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 8116.08, "buffer_pct_aum": 0.5, "idle_cash_cr": 8116.08, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 8116.08, "idle_yield_cost_cr": 4.058, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 4.058, "annualized_cost_bps": 0.3}, {"date": "2026-02-28", "year_month": "2026-02", "month": 2, "is_advance_tax_month": 0, "policy": "02. Static Historical 75th Pct Outflow Rule", "actual_net_flow_cr": 45071.0, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 52951.79, "buffer_pct_aum": 3.26, "idle_cash_cr": 52951.79, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 52951.79, "idle_yield_cost_cr": 26.476, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 26.476, "annualized_cost_bps": 1.96}, {"date": "2026-02-28", "year_month": "2026-02", "month": 2, "is_advance_tax_month": 0, "policy": "03. Forecast Median Rule (50th Pct Outflow)", "actual_net_flow_cr": 45071.0, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 8116.08, "buffer_pct_aum": 0.5, "idle_cash_cr": 8116.08, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 8116.08, "idle_yield_cost_cr": 4.058, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 4.058, "annualized_cost_bps": 0.3}, {"date": "2026-02-28", "year_month": "2026-02", "month": 2, "is_advance_tax_month": 0, "policy": "04. Conservative Tail Rule (95th Pct Outflow)", "actual_net_flow_cr": 45071.0, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 8278.67, "buffer_pct_aum": 0.51, "idle_cash_cr": 8278.67, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 8278.67, "idle_yield_cost_cr": 4.139, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 4.139, "annualized_cost_bps": 0.31}, {"date": "2026-02-28", "year_month": "2026-02", "month": 2, "is_advance_tax_month": 0, "policy": "05. Newsvendor Optimal Rule (75th Pct, c_u/c_o = 3:1)", "actual_net_flow_cr": 45071.0, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 8116.08, "buffer_pct_aum": 0.5, "idle_cash_cr": 8116.08, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 8116.08, "idle_yield_cost_cr": 4.058, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 4.058, "annualized_cost_bps": 0.3}, {"date": "2026-02-28", "year_month": "2026-02", "month": 2, "is_advance_tax_month": 0, "policy": "06. CIO Recommended Policy (Regime-Adaptive 75p/78p)", "actual_net_flow_cr": 45071.0, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 8116.08, "buffer_pct_aum": 0.5, "idle_cash_cr": 8116.08, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 8116.08, "idle_yield_cost_cr": 4.058, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 4.058, "annualized_cost_bps": 0.3}, {"date": "2026-03-31", "year_month": "2026-03", "month": 3, "is_advance_tax_month": 1, "policy": "01. Naive Baseline (Last Year Same-Month Outflow)", "actual_net_flow_cr": -175216.0, "actual_outflow_cr": 175216.0, "recommended_buffer_cr": 182442.33, "buffer_pct_aum": 11.76, "idle_cash_cr": 7226.33, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 7226.33, "idle_yield_cost_cr": 5.6, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 5.6, "annualized_cost_bps": 0.43}, {"date": "2026-03-31", "year_month": "2026-03", "month": 3, "is_advance_tax_month": 1, "policy": "02. Static Historical 75th Pct Outflow Rule", "actual_net_flow_cr": -175216.0, "actual_outflow_cr": 175216.0, "recommended_buffer_cr": 51926.54, "buffer_pct_aum": 3.35, "idle_cash_cr": 0.0, "shortfall_cr": 123289.46, "had_shortfall": 1, "weighted_flow_loss_cr": 369868.36, "idle_yield_cost_cr": 0.0, "shortfall_penalty_cost_cr": 286.648, "total_decision_cost_cr": 286.648, "annualized_cost_bps": 22.16}, {"date": "2026-03-31", "year_month": "2026-03", "month": 3, "is_advance_tax_month": 1, "policy": "03. Forecast Median Rule (50th Pct Outflow)", "actual_net_flow_cr": -175216.0, "actual_outflow_cr": 175216.0, "recommended_buffer_cr": 173727.21, "buffer_pct_aum": 11.19, "idle_cash_cr": 0.0, "shortfall_cr": 1488.79, "had_shortfall": 1, "weighted_flow_loss_cr": 4466.37, "idle_yield_cost_cr": 0.0, "shortfall_penalty_cost_cr": 3.461, "total_decision_cost_cr": 3.461, "annualized_cost_bps": 0.27}, {"date": "2026-03-31", "year_month": "2026-03", "month": 3, "is_advance_tax_month": 1, "policy": "04. Conservative Tail Rule (95th Pct Outflow)", "actual_net_flow_cr": -175216.0, "actual_outflow_cr": 175216.0, "recommended_buffer_cr": 207436.74, "buffer_pct_aum": 13.37, "idle_cash_cr": 32220.74, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 32220.74, "idle_yield_cost_cr": 24.971, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 24.971, "annualized_cost_bps": 1.93}, {"date": "2026-03-31", "year_month": "2026-03", "month": 3, "is_advance_tax_month": 1, "policy": "05. Newsvendor Optimal Rule (75th Pct, c_u/c_o = 3:1)", "actual_net_flow_cr": -175216.0, "actual_outflow_cr": 175216.0, "recommended_buffer_cr": 187262.29, "buffer_pct_aum": 12.07, "idle_cash_cr": 12046.29, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 12046.29, "idle_yield_cost_cr": 9.336, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 9.336, "annualized_cost_bps": 0.72}, {"date": "2026-03-31", "year_month": "2026-03", "month": 3, "is_advance_tax_month": 1, "policy": "06. CIO Recommended Policy (Regime-Adaptive 75p/78p)", "actual_net_flow_cr": -175216.0, "actual_outflow_cr": 175216.0, "recommended_buffer_cr": 189493.74, "buffer_pct_aum": 12.21, "idle_cash_cr": 14277.74, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 14277.74, "idle_yield_cost_cr": 11.065, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 11.065, "annualized_cost_bps": 0.86}, {"date": "2026-04-30", "year_month": "2026-04", "month": 4, "is_advance_tax_month": 0, "policy": "01. Naive Baseline (Last Year Same-Month Outflow)", "actual_net_flow_cr": 196420.0, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 8235.86, "buffer_pct_aum": 0.5, "idle_cash_cr": 8235.86, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 8235.86, "idle_yield_cost_cr": 3.843, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 3.843, "annualized_cost_bps": 0.28}, {"date": "2026-04-30", "year_month": "2026-04", "month": 4, "is_advance_tax_month": 0, "policy": "02. Static Historical 75th Pct Outflow Rule", "actual_net_flow_cr": 196420.0, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 54786.54, "buffer_pct_aum": 3.33, "idle_cash_cr": 54786.54, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 54786.54, "idle_yield_cost_cr": 25.567, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 25.567, "annualized_cost_bps": 1.86}, {"date": "2026-04-30", "year_month": "2026-04", "month": 4, "is_advance_tax_month": 0, "policy": "03. Forecast Median Rule (50th Pct Outflow)", "actual_net_flow_cr": 196420.0, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 8235.86, "buffer_pct_aum": 0.5, "idle_cash_cr": 8235.86, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 8235.86, "idle_yield_cost_cr": 3.843, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 3.843, "annualized_cost_bps": 0.28}, {"date": "2026-04-30", "year_month": "2026-04", "month": 4, "is_advance_tax_month": 0, "policy": "04. Conservative Tail Rule (95th Pct Outflow)", "actual_net_flow_cr": 196420.0, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 8235.86, "buffer_pct_aum": 0.5, "idle_cash_cr": 8235.86, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 8235.86, "idle_yield_cost_cr": 3.843, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 3.843, "annualized_cost_bps": 0.28}, {"date": "2026-04-30", "year_month": "2026-04", "month": 4, "is_advance_tax_month": 0, "policy": "05. Newsvendor Optimal Rule (75th Pct, c_u/c_o = 3:1)", "actual_net_flow_cr": 196420.0, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 8235.86, "buffer_pct_aum": 0.5, "idle_cash_cr": 8235.86, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 8235.86, "idle_yield_cost_cr": 3.843, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 3.843, "annualized_cost_bps": 0.28}, {"date": "2026-04-30", "year_month": "2026-04", "month": 4, "is_advance_tax_month": 0, "policy": "06. CIO Recommended Policy (Regime-Adaptive 75p/78p)", "actual_net_flow_cr": 196420.0, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 4117.93, "buffer_pct_aum": 0.25, "idle_cash_cr": 4117.93, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 4117.93, "idle_yield_cost_cr": 1.922, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 1.922, "annualized_cost_bps": 0.14}, {"date": "2026-05-31", "year_month": "2026-05", "month": 5, "is_advance_tax_month": 0, "policy": "01. Naive Baseline (Last Year Same-Month Outflow)", "actual_net_flow_cr": -30124.77, "actual_outflow_cr": 30124.77, "recommended_buffer_cr": 14618.49, "buffer_pct_aum": 0.89, "idle_cash_cr": 0.0, "shortfall_cr": 15506.28, "had_shortfall": 1, "weighted_flow_loss_cr": 46518.84, "idle_yield_cost_cr": 0.0, "shortfall_penalty_cost_cr": 16.282, "total_decision_cost_cr": 16.282, "annualized_cost_bps": 1.19}, {"date": "2026-05-31", "year_month": "2026-05", "month": 5, "is_advance_tax_month": 0, "policy": "02. Static Historical 75th Pct Outflow Rule", "actual_net_flow_cr": -30124.77, "actual_outflow_cr": 30124.77, "recommended_buffer_cr": 53977.04, "buffer_pct_aum": 3.29, "idle_cash_cr": 23852.27, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 23852.27, "idle_yield_cost_cr": 8.348, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 8.348, "annualized_cost_bps": 0.61}, {"date": "2026-05-31", "year_month": "2026-05", "month": 5, "is_advance_tax_month": 0, "policy": "03. Forecast Median Rule (50th Pct Outflow)", "actual_net_flow_cr": -30124.77, "actual_outflow_cr": 30124.77, "recommended_buffer_cr": 16255.02, "buffer_pct_aum": 0.99, "idle_cash_cr": 0.0, "shortfall_cr": 13869.75, "had_shortfall": 1, "weighted_flow_loss_cr": 41609.25, "idle_yield_cost_cr": 0.0, "shortfall_penalty_cost_cr": 14.563, "total_decision_cost_cr": 14.563, "annualized_cost_bps": 1.06}, {"date": "2026-05-31", "year_month": "2026-05", "month": 5, "is_advance_tax_month": 0, "policy": "04. Conservative Tail Rule (95th Pct Outflow)", "actual_net_flow_cr": -30124.77, "actual_outflow_cr": 30124.77, "recommended_buffer_cr": 44961.92, "buffer_pct_aum": 2.74, "idle_cash_cr": 14837.15, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 14837.15, "idle_yield_cost_cr": 5.193, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 5.193, "annualized_cost_bps": 0.38}, {"date": "2026-05-31", "year_month": "2026-05", "month": 5, "is_advance_tax_month": 0, "policy": "05. Newsvendor Optimal Rule (75th Pct, c_u/c_o = 3:1)", "actual_net_flow_cr": -30124.77, "actual_outflow_cr": 30124.77, "recommended_buffer_cr": 27846.02, "buffer_pct_aum": 1.7, "idle_cash_cr": 0.0, "shortfall_cr": 2278.75, "had_shortfall": 1, "weighted_flow_loss_cr": 6836.25, "idle_yield_cost_cr": 0.0, "shortfall_penalty_cost_cr": 2.393, "total_decision_cost_cr": 2.393, "annualized_cost_bps": 0.17}, {"date": "2026-05-31", "year_month": "2026-05", "month": 5, "is_advance_tax_month": 0, "policy": "06. CIO Recommended Policy (Regime-Adaptive 75p/78p)", "actual_net_flow_cr": -30124.77, "actual_outflow_cr": 30124.77, "recommended_buffer_cr": 27846.02, "buffer_pct_aum": 1.7, "idle_cash_cr": 0.0, "shortfall_cr": 2278.75, "had_shortfall": 1, "weighted_flow_loss_cr": 6836.25, "idle_yield_cost_cr": 0.0, "shortfall_penalty_cost_cr": 2.393, "total_decision_cost_cr": 2.393, "annualized_cost_bps": 0.17}, {"date": "2026-06-30", "year_month": "2026-06", "month": 6, "is_advance_tax_month": 1, "policy": "01. Naive Baseline (Last Year Same-Month Outflow)", "actual_net_flow_cr": -52872.58, "actual_outflow_cr": 52872.58, "recommended_buffer_cr": 57215.06, "buffer_pct_aum": 3.52, "idle_cash_cr": 4342.48, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 4342.48, "idle_yield_cost_cr": 2.859, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 2.859, "annualized_cost_bps": 0.21}, {"date": "2026-06-30", "year_month": "2026-06", "month": 6, "is_advance_tax_month": 1, "policy": "02. Static Historical 75th Pct Outflow Rule", "actual_net_flow_cr": -52872.58, "actual_outflow_cr": 52872.58, "recommended_buffer_cr": 52951.79, "buffer_pct_aum": 3.26, "idle_cash_cr": 79.21, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 79.21, "idle_yield_cost_cr": 0.052, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 0.052, "annualized_cost_bps": 0.0}, {"date": "2026-06-30", "year_month": "2026-06", "month": 6, "is_advance_tax_month": 1, "policy": "03. Forecast Median Rule (50th Pct Outflow)", "actual_net_flow_cr": -52872.58, "actual_outflow_cr": 52872.58, "recommended_buffer_cr": 47979.9, "buffer_pct_aum": 2.95, "idle_cash_cr": 0.0, "shortfall_cr": 4892.68, "had_shortfall": 1, "weighted_flow_loss_cr": 14678.04, "idle_yield_cost_cr": 0.0, "shortfall_penalty_cost_cr": 9.663, "total_decision_cost_cr": 9.663, "annualized_cost_bps": 0.71}, {"date": "2026-06-30", "year_month": "2026-06", "month": 6, "is_advance_tax_month": 1, "policy": "04. Conservative Tail Rule (95th Pct Outflow)", "actual_net_flow_cr": -52872.58, "actual_outflow_cr": 52872.58, "recommended_buffer_cr": 80079.49, "buffer_pct_aum": 4.93, "idle_cash_cr": 27206.91, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 27206.91, "idle_yield_cost_cr": 17.911, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 17.911, "annualized_cost_bps": 1.32}, {"date": "2026-06-30", "year_month": "2026-06", "month": 6, "is_advance_tax_month": 1, "policy": "05. Newsvendor Optimal Rule (75th Pct, c_u/c_o = 3:1)", "actual_net_flow_cr": -52872.58, "actual_outflow_cr": 52872.58, "recommended_buffer_cr": 61049.44, "buffer_pct_aum": 3.76, "idle_cash_cr": 8176.86, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 8176.86, "idle_yield_cost_cr": 5.383, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 5.383, "annualized_cost_bps": 0.4}, {"date": "2026-06-30", "year_month": "2026-06", "month": 6, "is_advance_tax_month": 1, "policy": "06. CIO Recommended Policy (Regime-Adaptive 75p/78p)", "actual_net_flow_cr": -52872.58, "actual_outflow_cr": 52872.58, "recommended_buffer_cr": 63178.85, "buffer_pct_aum": 3.89, "idle_cash_cr": 10306.27, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 10306.27, "idle_yield_cost_cr": 6.785, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 6.785, "annualized_cost_bps": 0.5}, {"date": "2026-07-31", "year_month": "2026-07", "month": 7, "is_advance_tax_month": 0, "policy": "01. Naive Baseline (Last Year Same-Month Outflow)", "actual_net_flow_cr": 125047.91, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 8440.92, "buffer_pct_aum": 0.5, "idle_cash_cr": 8440.92, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 8440.92, "idle_yield_cost_cr": 4.22, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 4.22, "annualized_cost_bps": 0.3}, {"date": "2026-07-31", "year_month": "2026-07", "month": 7, "is_advance_tax_month": 0, "policy": "02. Static Historical 75th Pct Outflow Rule", "actual_net_flow_cr": 125047.91, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 53424.81, "buffer_pct_aum": 3.16, "idle_cash_cr": 53424.81, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 53424.81, "idle_yield_cost_cr": 26.712, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 26.712, "annualized_cost_bps": 1.9}, {"date": "2026-07-31", "year_month": "2026-07", "month": 7, "is_advance_tax_month": 0, "policy": "03. Forecast Median Rule (50th Pct Outflow)", "actual_net_flow_cr": 125047.91, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 8440.92, "buffer_pct_aum": 0.5, "idle_cash_cr": 8440.92, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 8440.92, "idle_yield_cost_cr": 4.22, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 4.22, "annualized_cost_bps": 0.3}, {"date": "2026-07-31", "year_month": "2026-07", "month": 7, "is_advance_tax_month": 0, "policy": "04. Conservative Tail Rule (95th Pct Outflow)", "actual_net_flow_cr": 125047.91, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 8440.92, "buffer_pct_aum": 0.5, "idle_cash_cr": 8440.92, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 8440.92, "idle_yield_cost_cr": 4.22, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 4.22, "annualized_cost_bps": 0.3}, {"date": "2026-07-31", "year_month": "2026-07", "month": 7, "is_advance_tax_month": 0, "policy": "05. Newsvendor Optimal Rule (75th Pct, c_u/c_o = 3:1)", "actual_net_flow_cr": 125047.91, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 8440.92, "buffer_pct_aum": 0.5, "idle_cash_cr": 8440.92, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 8440.92, "idle_yield_cost_cr": 4.22, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 4.22, "annualized_cost_bps": 0.3}, {"date": "2026-07-31", "year_month": "2026-07", "month": 7, "is_advance_tax_month": 0, "policy": "06. CIO Recommended Policy (Regime-Adaptive 75p/78p)", "actual_net_flow_cr": 125047.91, "actual_outflow_cr": 0.0, "recommended_buffer_cr": 4220.46, "buffer_pct_aum": 0.25, "idle_cash_cr": 4220.46, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 4220.46, "idle_yield_cost_cr": 2.11, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 2.11, "annualized_cost_bps": 0.15}, {"date": "2026-08-31", "year_month": "2026-08", "month": 8, "is_advance_tax_month": 0, "policy": "01. Naive Baseline (Last Year Same-Month Outflow)", "actual_net_flow_cr": -10719.96, "actual_outflow_cr": 10719.96, "recommended_buffer_cr": 8454.36, "buffer_pct_aum": 0.5, "idle_cash_cr": 0.0, "shortfall_cr": 2265.6, "had_shortfall": 1, "weighted_flow_loss_cr": 6796.8, "idle_yield_cost_cr": 0.0, "shortfall_penalty_cost_cr": 3.512, "total_decision_cost_cr": 3.512, "annualized_cost_bps": 0.25}, {"date": "2026-08-31", "year_month": "2026-08", "month": 8, "is_advance_tax_month": 0, "policy": "02. Static Historical 75th Pct Outflow Rule", "actual_net_flow_cr": -10719.96, "actual_outflow_cr": 10719.96, "recommended_buffer_cr": 53148.69, "buffer_pct_aum": 3.14, "idle_cash_cr": 42428.74, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 42428.74, "idle_yield_cost_cr": 21.922, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 21.922, "annualized_cost_bps": 1.56}, {"date": "2026-08-31", "year_month": "2026-08", "month": 8, "is_advance_tax_month": 0, "policy": "03. Forecast Median Rule (50th Pct Outflow)", "actual_net_flow_cr": -10719.96, "actual_outflow_cr": 10719.96, "recommended_buffer_cr": 8454.36, "buffer_pct_aum": 0.5, "idle_cash_cr": 0.0, "shortfall_cr": 2265.6, "had_shortfall": 1, "weighted_flow_loss_cr": 6796.8, "idle_yield_cost_cr": 0.0, "shortfall_penalty_cost_cr": 3.512, "total_decision_cost_cr": 3.512, "annualized_cost_bps": 0.25}, {"date": "2026-08-31", "year_month": "2026-08", "month": 8, "is_advance_tax_month": 0, "policy": "04. Conservative Tail Rule (95th Pct Outflow)", "actual_net_flow_cr": -10719.96, "actual_outflow_cr": 10719.96, "recommended_buffer_cr": 8454.36, "buffer_pct_aum": 0.5, "idle_cash_cr": 0.0, "shortfall_cr": 2265.6, "had_shortfall": 1, "weighted_flow_loss_cr": 6796.8, "idle_yield_cost_cr": 0.0, "shortfall_penalty_cost_cr": 3.512, "total_decision_cost_cr": 3.512, "annualized_cost_bps": 0.25}, {"date": "2026-08-31", "year_month": "2026-08", "month": 8, "is_advance_tax_month": 0, "policy": "05. Newsvendor Optimal Rule (75th Pct, c_u/c_o = 3:1)", "actual_net_flow_cr": -10719.96, "actual_outflow_cr": 10719.96, "recommended_buffer_cr": 8454.36, "buffer_pct_aum": 0.5, "idle_cash_cr": 0.0, "shortfall_cr": 2265.6, "had_shortfall": 1, "weighted_flow_loss_cr": 6796.8, "idle_yield_cost_cr": 0.0, "shortfall_penalty_cost_cr": 3.512, "total_decision_cost_cr": 3.512, "annualized_cost_bps": 0.25}, {"date": "2026-08-31", "year_month": "2026-08", "month": 8, "is_advance_tax_month": 0, "policy": "06. CIO Recommended Policy (Regime-Adaptive 75p/78p)", "actual_net_flow_cr": -10719.96, "actual_outflow_cr": 10719.96, "recommended_buffer_cr": 4227.18, "buffer_pct_aum": 0.25, "idle_cash_cr": 0.0, "shortfall_cr": 6492.78, "had_shortfall": 1, "weighted_flow_loss_cr": 19478.34, "idle_yield_cost_cr": 0.0, "shortfall_penalty_cost_cr": 10.064, "total_decision_cost_cr": 10.064, "annualized_cost_bps": 0.71}, {"date": "2026-09-30", "year_month": "2026-09", "month": 9, "is_advance_tax_month": 1, "policy": "01. Naive Baseline (Last Year Same-Month Outflow)", "actual_net_flow_cr": -103024.4, "actual_outflow_cr": 103024.4, "recommended_buffer_cr": 75236.07, "buffer_pct_aum": 10.71, "idle_cash_cr": 0.0, "shortfall_cr": 27788.33, "had_shortfall": 1, "weighted_flow_loss_cr": 83364.99, "idle_yield_cost_cr": 0.0, "shortfall_penalty_cost_cr": 54.187, "total_decision_cost_cr": 54.187, "annualized_cost_bps": 9.25}, {"date": "2026-09-30", "year_month": "2026-09", "month": 9, "is_advance_tax_month": 1, "policy": "02. Static Historical 75th Pct Outflow Rule", "actual_net_flow_cr": -103024.4, "actual_outflow_cr": 103024.4, "recommended_buffer_cr": 52872.58, "buffer_pct_aum": 7.52, "idle_cash_cr": 0.0, "shortfall_cr": 50151.82, "had_shortfall": 1, "weighted_flow_loss_cr": 150455.46, "idle_yield_cost_cr": 0.0, "shortfall_penalty_cost_cr": 97.796, "total_decision_cost_cr": 97.796, "annualized_cost_bps": 16.7}, {"date": "2026-09-30", "year_month": "2026-09", "month": 9, "is_advance_tax_month": 1, "policy": "03. Forecast Median Rule (50th Pct Outflow)", "actual_net_flow_cr": -103024.4, "actual_outflow_cr": 103024.4, "recommended_buffer_cr": 78819.91, "buffer_pct_aum": 11.22, "idle_cash_cr": 0.0, "shortfall_cr": 24204.49, "had_shortfall": 1, "weighted_flow_loss_cr": 72613.47, "idle_yield_cost_cr": 0.0, "shortfall_penalty_cost_cr": 47.199, "total_decision_cost_cr": 47.199, "annualized_cost_bps": 8.06}, {"date": "2026-09-30", "year_month": "2026-09", "month": 9, "is_advance_tax_month": 1, "policy": "04. Conservative Tail Rule (95th Pct Outflow)", "actual_net_flow_cr": -103024.4, "actual_outflow_cr": 103024.4, "recommended_buffer_cr": 115492.96, "buffer_pct_aum": 16.44, "idle_cash_cr": 12468.56, "shortfall_cr": 0.0, "had_shortfall": 0, "weighted_flow_loss_cr": 12468.56, "idle_yield_cost_cr": 8.105, "shortfall_penalty_cost_cr": 0.0, "total_decision_cost_cr": 8.105, "annualized_cost_bps": 1.38}, {"date": "2026-09-30", "year_month": "2026-09", "month": 9, "is_advance_tax_month": 1, "policy": "05. Newsvendor Optimal Rule (75th Pct, c_u/c_o = 3:1)", "actual_net_flow_cr": -103024.4, "actual_outflow_cr": 103024.4, "recommended_buffer_cr": 93109.3, "buffer_pct_aum": 13.25, "idle_cash_cr": 0.0, "shortfall_cr": 9915.1, "had_shortfall": 1, "weighted_flow_loss_cr": 29745.3, "idle_yield_cost_cr": 0.0, "shortfall_penalty_cost_cr": 19.334, "total_decision_cost_cr": 19.334, "annualized_cost_bps": 3.3}, {"date": "2026-09-30", "year_month": "2026-09", "month": 9, "is_advance_tax_month": 1, "policy": "06. CIO Recommended Policy (Regime-Adaptive 75p/78p)", "actual_net_flow_cr": -103024.4, "actual_outflow_cr": 103024.4, "recommended_buffer_cr": 95547.86, "buffer_pct_aum": 13.6, "idle_cash_cr": 0.0, "shortfall_cr": 7476.54, "had_shortfall": 1, "weighted_flow_loss_cr": 22429.63, "idle_yield_cost_cr": 0.0, "shortfall_penalty_cost_cr": 14.579, "total_decision_cost_cr": 14.579, "annualized_cost_bps": 2.49}]};
+
+    const EXOG_BY_MONTH = {
+      "2026-10": { call: 5.42, tbill: 5.62, cp: 6.18, spread: 76.0, laf: 68.0, regime: "Qtr-Start Rebound (Oct)" },
+      "2026-11": { call: 5.48, tbill: 5.66, cp: 6.22, spread: 74.0, laf: 24.0, regime: "Mid-Quarter Normal (Nov)" },
+      "2026-12": { call: 5.64, tbill: 5.84, cp: 6.48, spread: 84.0, laf: -78.0, regime: "Advance-Tax + Q3-End (15 Dec)" },
+      "2027-01": { call: 5.44, tbill: 5.64, cp: 6.20, spread: 76.0, laf: 52.0, regime: "Qtr-Start Rebound (Jan)" },
+      "2027-02": { call: 5.46, tbill: 5.65, cp: 6.24, spread: 78.0, laf: 30.0, regime: "Mid-Quarter Normal (Feb)" },
+      "2027-03": { call: 5.72, tbill: 5.95, cp: 6.72, spread: 100.0, laf: -142.0, regime: "Advance-Tax + FY-End (15 Mar)" }
+    };
+
+    const CATEGORY_AUM = {
+      "Liquid Funds": 625847.01,
+      "Overnight Funds": 76840.50,
+      "Combined (Liquid + Overnight)": 702687.51
+    };
+
+    let state = {
+      activeTab: "overview",
+      selectedMonth: "2027-03",
+      selectedCategory: "Liquid Funds",
+      selectedPolicy: "cio_regime",
+      schemeAumCr: 25000,
+      penaltyMult: 3.0
+    };
+
+    let chartForward = null;
+    let chartDonut = null;
+    let chartDrivers = null;
+    let chartBacktest = null;
+    let chartPolicyBar = null;
+
+    function fmtCr(val) {
+      const sign = val < 0 ? "-" : (val > 0 ? "+" : "");
+      const absVal = Math.abs(Math.round(val));
+      return sign + "₹" + absVal.toLocaleString("en-IN") + " Cr";
+    }
+
+    function fmtAbsCr(val, decimals = 1) {
+      return "₹" + Number(val).toLocaleString("en-IN", { minimumFractionDigits: decimals, maximumFractionDigits: decimals }) + " Cr";
+    }
+
+    function showToast(msg) {
+      const el = document.getElementById("toastBanner");
+      el.textContent = msg;
+      el.classList.remove("hidden");
+      if (window._toastTimer) clearTimeout(window._toastTimer);
+      window._toastTimer = setTimeout(() => el.classList.add("hidden"), 3200);
+    }
+
+    function computePolicyBufferForRow(row, catAum, policyKey) {
+      const minFloor = catAum * 0.005;
+      const inflowFloor = catAum * 0.0025;
+      const q25 = row.q25_flow_cr;
+      const q10 = row.ci80_lower_cr;
+      const isTax = row.is_advance_tax_month === 1;
+
+      if (policyKey === "cio_regime") {
+        if (q10 > 0) return inflowFloor;
+        if (isTax) return Math.max(minFloor, Math.max(0, -(0.82 * q25 + 0.18 * q10)));
+        return Math.max(minFloor, Math.max(0, -q25));
+      } else if (policyKey === "newsvendor_75") {
+        return Math.max(minFloor, Math.max(0, -q25));
+      } else if (policyKey === "tail_95") {
+        return Math.max(inflowFloor, row.p95_outflow_buffer_cr);
+      } else if (policyKey === "median_50") {
+        return Math.max(minFloor, row.expected_outflow_cr);
+      } else {
+        return Math.max(minFloor, Math.max(0, -row.seasonal_naive_point_cr));
+      }
+    }
+
+    function updateOverview() {
+      const cat = state.selectedCategory;
+      const catAum = CATEGORY_AUM[cat];
+      const rows = PAYLOAD.forward_forecasts.filter(r => r.category === cat);
+      const curRow = rows.find(r => r.year_month === state.selectedMonth) || rows[rows.length - 1];
+      const exog = EXOG_BY_MONTH[state.selectedMonth];
+
+      const indBufCr = computePolicyBufferForRow(curRow, catAum, state.selectedPolicy);
+      const bufPctAum = (indBufCr / catAum) * 100.0;
+      const schemeBufCr = (bufPctAum / 100.0) * state.schemeAumCr;
+
+      const indTail95Cr = Math.max(catAum * 0.0025, curRow.p95_outflow_buffer_cr);
+      const tail95PctAum = (indTail95Cr / catAum) * 100.0;
+      const schemeTail95Cr = (tail95PctAum / 100.0) * state.schemeAumCr;
+
+      const monthlyDragRate = (exog.spread / 10000.0) / 12.0;
+      const estDragCr = schemeBufCr * monthlyDragRate;
+      const estAnnBps = (estDragCr / state.schemeAumCr) * 12.0 * 10000.0;
+
+      document.getElementById("kpiCard1Label").textContent = curRow.year_month + " Net Flow Forecast";
+      const badge = document.getElementById("kpiRegimeBadge");
+      badge.textContent = exog.regime;
+      badge.className = curRow.is_advance_tax_month
+        ? "text-xs font-bold px-2 py-0.5 rounded-full bg-red-100 text-red-800"
+        : (curRow.point_forecast_cr > 0 ? "text-xs font-bold px-2 py-0.5 rounded-full bg-emerald-100 text-emerald-800" : "text-xs font-bold px-2 py-0.5 rounded-full bg-amber-100 text-amber-800");
+
+      const ptEl = document.getElementById("kpiPointForecast");
+      ptEl.textContent = fmtCr(curRow.point_forecast_cr);
+      ptEl.className = "mt-2 text-2xl font-extrabold " + (curRow.point_forecast_cr < 0 ? "text-red-600" : "text-emerald-700");
+
+      document.getElementById("kpiInterval80").textContent = `80% PI: [${fmtCr(curRow.ci80_lower_cr)}, ${fmtCr(curRow.ci80_upper_cr)}]`;
+      document.getElementById("kpiInterval95").textContent = `95% PI: [${fmtCr(curRow.ci95_lower_cr)}, ${fmtCr(curRow.ci95_upper_cr)}]`;
+
+      document.getElementById("kpiSchemeAumTag").textContent = "₹" + Number(state.schemeAumCr).toLocaleString("en-IN") + " Cr Fund";
+      document.getElementById("kpiSchemeBufferCr").textContent = fmtAbsCr(schemeBufCr, 1);
+      document.getElementById("kpiBufferPctAum").textContent = `${bufPctAum.toFixed(2)}% of Fund AUM in Cash/TREPS`;
+      document.getElementById("kpiIndustryBufferCr").textContent = `Industry Equivalent: ${fmtAbsCr(indBufCr, 0)}`;
+
+      document.getElementById("kpiTail95SchemeCr").textContent = fmtAbsCr(schemeTail95Cr, 1);
+      document.getElementById("kpiTail95PctAum").textContent = `${tail95PctAum.toFixed(2)}% of Fund AUM (95% CI Bound)`;
+      document.getElementById("kpiExpectedDragCr").textContent = `Est. Monthly Yield Drag: ${fmtAbsCr(estDragCr, 2)} (${estAnnBps.toFixed(1)} bps ann.)`;
+
+      document.getElementById("chartCategoryTag").textContent = `Category: ${cat}`;
+      document.getElementById("metricCallYield").textContent = `${exog.call.toFixed(2)}% p.a.`;
+      document.getElementById("metricCpYield").textContent = `${exog.cp.toFixed(2)}% / ${exog.tbill.toFixed(2)}% p.a.`;
+      document.getElementById("metricSpreadBps").textContent = `${exog.spread.toFixed(1)} bps (${(exog.spread / 12).toFixed(1)} bps/mo)`;
+      const lafEl = document.getElementById("metricLafPosition");
+      lafEl.textContent = (exog.laf >= 0 ? "+" : "-") + "₹" + Math.abs(exog.laf * 1000).toLocaleString("en-IN") + " Cr";
+      lafEl.className = "font-bold " + (exog.laf < 0 ? "text-red-700" : "text-emerald-700");
+
+      // Render Schedule Table
+      const tbody = document.getElementById("tableScheduleBody");
+      tbody.innerHTML = "";
+      rows.forEach(r => {
+        const rIndBuf = computePolicyBufferForRow(r, catAum, state.selectedPolicy);
+        const rPct = (rIndBuf / catAum) * 100.0;
+        const rSchemeBuf = (rPct / 100.0) * state.schemeAumCr;
+        const rTailInd = Math.max(catAum * 0.0025, r.p95_outflow_buffer_cr);
+        const rTailScheme = (rTailInd / catAum) * state.schemeAumCr;
+        const isSel = r.year_month === state.selectedMonth;
+
+        const tr = document.createElement("tr");
+        tr.className = "cursor-pointer transition " + (isSel ? "bg-blue-50/90 font-semibold" : "hover:bg-slate-50");
+        tr.addEventListener("click", () => {
+          state.selectedMonth = r.year_month;
+          document.getElementById("selectMonth").value = r.year_month;
+          updateOverview();
+        });
+
+        const ex = EXOG_BY_MONTH[r.year_month];
+        tr.innerHTML = `
+          <td class="py-2.5 px-3 font-bold text-slate-900">${r.year_month} ${r.in_3m_challenge_window ? '<span class="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-800">Next 3M</span>' : '<span class="ml-1 text-[10px] px-1.5 py-0.5 rounded bg-purple-100 text-purple-800">Q4 Target</span>'}</td>
+          <td class="py-2.5 px-3 text-slate-700">${ex.regime}</td>
+          <td class="py-2.5 px-3 text-right font-bold ${r.point_forecast_cr < 0 ? 'text-red-600' : 'text-emerald-700'}">${fmtCr(r.point_forecast_cr)}</td>
+          <td class="py-2.5 px-3 text-right text-slate-600">[${Math.round(r.ci80_lower_cr).toLocaleString("en-IN")}, ${Math.round(r.ci80_upper_cr).toLocaleString("en-IN")}]</td>
+          <td class="py-2.5 px-3 text-right text-slate-500">[${Math.round(r.ci95_lower_cr).toLocaleString("en-IN")}, ${Math.round(r.ci95_upper_cr).toLocaleString("en-IN")}]</td>
+          <td class="py-2.5 px-3 text-right font-bold text-blue-900">${rPct.toFixed(2)}%</td>
+          <td class="py-2.5 px-3 text-right font-extrabold text-blue-800">${fmtAbsCr(rSchemeBuf, 1)}</td>
+          <td class="py-2.5 px-3 text-right font-semibold text-amber-800">${fmtAbsCr(rTailScheme, 1)}</td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+      renderForwardChart(rows);
+      renderDonutChart(bufPctAum);
+    }
+
+    function renderForwardChart(rows) {
+      const ctx = document.getElementById("chartForwardForecast").getContext("2d");
+      const labels = rows.map(r => r.year_month);
+      const pt = rows.map(r => r.point_forecast_cr);
+      const snaive = rows.map(r => r.seasonal_naive_point_cr);
+      const ci80L = rows.map(r => r.ci80_lower_cr);
+      const ci80U = rows.map(r => r.ci80_upper_cr);
+      const ci95L = rows.map(r => r.ci95_lower_cr);
+      const ci95U = rows.map(r => r.ci95_upper_cr);
+
+      if (chartForward) chartForward.destroy();
+      chartForward = new Chart(ctx, {
+        type: "line",
+        data: {
+          labels,
+          datasets: [
+            { label: "Champion Point Forecast (₹ Cr)", data: pt, borderColor: "#1D4ED8", backgroundColor: "#1D4ED8", borderWidth: 2.5, pointRadius: 5, tension: 0.2 },
+            { label: "Seasonal Naive Benchmark", data: snaive, borderColor: "#64748B", borderDash: [5, 5], borderWidth: 1.8, pointRadius: 3.5, tension: 0.2 },
+            { label: "80% PI Upper", data: ci80U, borderColor: "rgba(59,130,246,0.3)", backgroundColor: "rgba(59,130,246,0.22)", fill: "+1", pointRadius: 0, tension: 0.2 },
+            { label: "80% PI Lower", data: ci80L, borderColor: "rgba(59,130,246,0.3)", fill: false, pointRadius: 0, tension: 0.2 },
+            { label: "95% PI Upper", data: ci95U, borderColor: "rgba(147,197,253,0.2)", backgroundColor: "rgba(147,197,253,0.18)", fill: "+1", pointRadius: 0, tension: 0.2 },
+            { label: "95% PI Lower", data: ci95L, borderColor: "rgba(147,197,253,0.2)", fill: false, pointRadius: 0, tension: 0.2 }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: "index", intersect: false },
+          plugins: {
+            legend: { position: "top", labels: { boxWidth: 12, font: { size: 11 } } }
+          },
+          scales: {
+            y: {
+              title: { display: true, text: "Monthly Net Flow (₹ Crore)", font: { size: 11, weight: "bold" } },
+              grid: { color: "#F1F5F9" }
+            }
+          }
+        }
+      });
+    }
+
+    function renderDonutChart(bufPct) {
+      const ctx = document.getElementById("chartAllocationDonut").getContext("2d");
+      const cashShare = Math.min(100, Math.max(0.25, bufPct));
+      const tbillShare = Math.max(0, (100 - cashShare) * 0.45);
+      const cpShare = Math.max(0, (100 - cashShare) * 0.55);
+
+      if (chartDonut) chartDonut.destroy();
+      chartDonut = new Chart(ctx, {
+        type: "doughnut",
+        data: {
+          labels: [
+            `Liquid Cash / TREPS Buffer (${cashShare.toFixed(1)}%)`,
+            `91-Day Sovereign T-Bills (${tbillShare.toFixed(1)}%)`,
+            `3M Commercial Paper / CDs (${cpShare.toFixed(1)}%)`
+          ],
+          datasets: [{
+            data: [cashShare, tbillShare, cpShare],
+            backgroundColor: ["#1D4ED8", "#0EA5E9", "#94A3B8"],
+            borderWidth: 2,
+            borderColor: "#FFFFFF"
+          }]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          cutout: "62%",
+          plugins: {
+            legend: { position: "bottom", labels: { boxWidth: 10, font: { size: 10 } } }
+          }
+        }
+      });
+    }
+
+    function initDriversView() {
+      const drivers = PAYLOAD.driver_analysis_combined;
+      const tbody = document.getElementById("tableDriversBody");
+      tbody.innerHTML = "";
+      drivers.forEach(d => {
+        const isPrimary = d.matters_in_practice.includes("Primary");
+        const tr = document.createElement("tr");
+        tr.className = "hover:bg-slate-50";
+        tr.innerHTML = `
+          <td class="py-2.5 px-3 font-semibold text-slate-900">${d.driver_name}</td>
+          <td class="py-2.5 px-3 text-slate-600">${d.category}</td>
+          <td class="py-2.5 px-3 text-right font-mono">${d.coef_cr_per_unit.toLocaleString("en-IN")}</td>
+          <td class="py-2.5 px-3 text-right font-mono text-slate-500">${d.hac_se.toLocaleString("en-IN")}</td>
+          <td class="py-2.5 px-3 text-right font-bold ${Math.abs(d.t_stat) > 2 ? 'text-blue-800' : 'text-slate-500'}">${d.t_stat.toFixed(2)}</td>
+          <td class="py-2.5 px-3 text-right font-mono">${d.p_value.toFixed(4)}</td>
+          <td class="py-2.5 px-3 text-right font-bold ${d.one_sd_impact_cr < 0 ? 'text-red-600' : 'text-emerald-700'}">${fmtCr(d.one_sd_impact_cr)}</td>
+          <td class="py-2.5 px-3 text-right font-bold text-slate-900">${d.partial_r2_pct.toFixed(2)}%</td>
+          <td class="py-2.5 px-3"><span class="px-2 py-0.5 rounded-full text-[11px] font-bold ${isPrimary ? 'bg-emerald-100 text-emerald-800' : 'bg-slate-100 text-slate-600'}">${d.matters_in_practice}</span></td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+      const ctx = document.getElementById("chartDriversBar").getContext("2d");
+      if (chartDrivers) chartDrivers.destroy();
+      chartDrivers = new Chart(ctx, {
+        type: "bar",
+        data: {
+          labels: drivers.map(d => d.driver_name.split(" (")[0]),
+          datasets: [{
+            label: "Partial R² Variance Explained (%)",
+            data: drivers.map(d => d.partial_r2_pct),
+            backgroundColor: drivers.map(d => d.p_value < 0.01 ? "#1E3A8A" : "#94A3B8"),
+            borderRadius: 5
+          }]
+        },
+        options: {
+          indexAxis: "y",
+          responsive: true,
+          maintainAspectRatio: false,
+          plugins: { legend: { display: false } },
+          scales: {
+            x: { title: { display: true, text: "Partial R² (%)", font: { size: 11, weight: "bold" } } }
+          }
+        }
+      });
+
+      updateStressSimulator();
+    }
+
+    function updateStressSimulator() {
+      const laf = parseFloat(document.getElementById("sliderSimLaf").value);
+      const taxPct = parseFloat(document.getElementById("sliderSimTax").value);
+      const spread = parseFloat(document.getElementById("sliderSimSpread").value);
+      const nifty = parseFloat(document.getElementById("sliderSimNifty").value);
+
+      document.getElementById("lblSimLaf").textContent = `${laf.toFixed(1)} ('000 Cr)`;
+      document.getElementById("lblSimTax").textContent = `${taxPct.toFixed(0)}%`;
+      document.getElementById("lblSimSpread").textContent = `${spread.toFixed(1)} bps`;
+      document.getElementById("lblSimNifty").textContent = `${nifty.toFixed(1)}%`;
+
+      // Base 15 March 2027 combined flow is -180,361.32 Cr at laf=-142, tax=100%, spread=23, nifty=-2.1
+      const deltaLaf = (laf - (-142.0)) * 272.14;
+      const deltaTax = ((taxPct - 100.0) / 100.0) * (-130696.0);
+      const deltaSpread = (spread - 23.0) * 1618.62 * 0.25;
+      const deltaNifty = (nifty - (-2.1)) * 161.88;
+
+      const simFlow = -180361.32 + deltaLaf + deltaTax + deltaSpread + deltaNifty;
+      const simOutflow = Math.max(0, -simFlow);
+      const simLiquidOutflow = simOutflow * 0.785 + 15000.0;
+      const simPct = Math.min(45.0, Math.max(0.5, (simLiquidOutflow / 625847.01) * 100.0));
+      const simSchemeCr = (simPct / 100.0) * state.schemeAumCr;
+
+      document.getElementById("simResultFlow").textContent = fmtCr(simFlow);
+      document.getElementById("simResultPct").textContent = `${simPct.toFixed(2)}% of AUM`;
+      document.getElementById("simResultSchemeCr").textContent = fmtAbsCr(simSchemeCr, 1);
+    }
+
+    function initBenchmarkView() {
+      const bench = PAYLOAD.benchmarking_combined;
+      const tbody = document.getElementById("tableBenchmarkBody");
+      tbody.innerHTML = "";
+      bench.forEach((b, idx) => {
+        const isChamp = b.model.includes("Q-GBDT");
+        const tr = document.createElement("tr");
+        tr.className = isChamp ? "bg-blue-50/80 font-semibold" : "hover:bg-slate-50";
+        tr.innerHTML = `
+          <td class="py-2.5 px-3 font-bold text-slate-900">${idx === 0 ? "★ " : ""}${b.model}</td>
+          <td class="py-2.5 px-3 text-right font-bold ${isChamp ? 'text-blue-800' : ''}">${b.mape_pct.toFixed(2)}%</td>
+          <td class="py-2.5 px-3 text-right">${b.wape_pct.toFixed(2)}%</td>
+          <td class="py-2.5 px-3 text-right">${b.mae_cr.toLocaleString("en-IN")}</td>
+          <td class="py-2.5 px-3 text-right">${b.rmse_cr.toLocaleString("en-IN")}</td>
+          <td class="py-2.5 px-3 text-right font-bold text-emerald-700">${b.mean_pinball_loss_cr.toLocaleString("en-IN")}</td>
+          <td class="py-2.5 px-3 text-right">${b.pinball_q90_cr.toLocaleString("en-IN")}</td>
+          <td class="py-2.5 px-3 text-right">${b.coverage_80_pct.toFixed(1)}%</td>
+          <td class="py-2.5 px-3 text-right font-bold">${b.coverage_95_pct.toFixed(1)}%</td>
+          <td class="py-2.5 px-3 text-right text-slate-500">₹${b.avg_95_pi_width_cr.toLocaleString("en-IN")} Cr</td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+      const btChamp = PAYLOAD.rolling_backtest_champion;
+      const btNaive = PAYLOAD.rolling_backtest_naive;
+      const ctx = document.getElementById("chartRollingBacktest").getContext("2d");
+      if (chartBacktest) chartBacktest.destroy();
+      chartBacktest = new Chart(ctx, {
+        type: "line",
+        data: {
+          labels: btChamp.map(r => r.year_month),
+          datasets: [
+            { label: "Actual AMFI Combined Net Flow", data: btChamp.map(r => r.actual_cr), borderColor: "#0F172A", backgroundColor: "#0F172A", borderWidth: 2.2, pointRadius: 3.5 },
+            { label: "Q-GBDT + Conformal Point Forecast", data: btChamp.map(r => r.point_forecast_cr), borderColor: "#1D4ED8", borderDash: [4, 3], borderWidth: 2, pointRadius: 3 },
+            { label: "Seasonal Naive (Lag-12)", data: btNaive.map(r => r.point_forecast_cr), borderColor: "#94A3B8", borderDash: [2, 2], borderWidth: 1.4, pointRadius: 2 },
+            { label: "95% PI Upper", data: btChamp.map(r => r.q975_cr), borderColor: "rgba(59,130,246,0.2)", backgroundColor: "rgba(59,130,246,0.15)", fill: "+1", pointRadius: 0 },
+            { label: "95% PI Lower", data: btChamp.map(r => r.q025_cr), borderColor: "rgba(59,130,246,0.2)", fill: false, pointRadius: 0 }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          interaction: { mode: "index", intersect: false },
+          plugins: { legend: { position: "top", labels: { boxWidth: 12, font: { size: 11 } } } },
+          scales: { y: { title: { display: true, text: "Net Flow (₹ Crore)", font: { size: 11, weight: "bold" } } } }
+        }
+      });
+    }
+
+    function initDecisionView() {
+      const pols = PAYLOAD.policy_summary;
+      const tbody = document.getElementById("tablePolicyBody");
+      tbody.innerHTML = "";
+      pols.forEach(p => {
+        const isRec = p.policy.includes("CIO Recommended");
+        const tr = document.createElement("tr");
+        tr.className = isRec ? "bg-emerald-50/80 font-semibold" : "hover:bg-slate-50";
+        tr.innerHTML = `
+          <td class="py-2.5 px-3 font-bold text-slate-900">${isRec ? "★ " : ""}${p.policy}</td>
+          <td class="py-2.5 px-3 text-right">₹${p.avg_buffer_cr.toLocaleString("en-IN")} Cr</td>
+          <td class="py-2.5 px-3 text-right">${p.avg_buffer_pct_aum.toFixed(2)}%</td>
+          <td class="py-2.5 px-3 text-right">${p.shortfall_months_count} / 24</td>
+          <td class="py-2.5 px-3 text-right">₹${p.cum_idle_drag_cost_cr.toFixed(2)} Cr</td>
+          <td class="py-2.5 px-3 text-right">₹${p.cum_shortfall_penalty_cr.toFixed(2)} Cr</td>
+          <td class="py-2.5 px-3 text-right font-extrabold text-slate-900">₹${p.cum_24m_decision_cost_cr.toFixed(2)} Cr</td>
+          <td class="py-2.5 px-3 text-right font-bold ${p.cost_reduction_vs_naive_pct > 0 ? 'text-emerald-700' : 'text-red-600'}">${p.cost_reduction_vs_naive_pct > 0 ? "-" : "+"}${Math.abs(p.cost_reduction_vs_naive_pct).toFixed(2)}%</td>
+        `;
+        tbody.appendChild(tr);
+      });
+
+      const ctx = document.getElementById("chartPolicyCostBar").getContext("2d");
+      if (chartPolicyBar) chartPolicyBar.destroy();
+      const filteredPols = pols.filter(p => !p.policy.includes("Static Historical"));
+      chartPolicyBar = new Chart(ctx, {
+        type: "bar",
+        data: {
+          labels: filteredPols.map(p => p.policy.replace(/^[0-9]+\.\s*/, "").split(" (")[0]),
+          datasets: [
+            { label: "Idle Cash Yield Drag Cost (1×)", data: filteredPols.map(p => p.cum_idle_drag_cost_cr), backgroundColor: "#3B82F6" },
+            { label: "Shortfall Penalty Cost (3×)", data: filteredPols.map(p => p.cum_shortfall_penalty_cr), backgroundColor: "#EF4444" }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          scales: {
+            x: { stacked: true },
+            y: { stacked: true, title: { display: true, text: "24-Month Cumulative Cost (₹ Cr)", font: { size: 11, weight: "bold" } } }
+          }
+        }
+      });
+
+      updatePenaltySensitivity();
+    }
+
+    function updatePenaltySensitivity() {
+      const mult = parseFloat(document.getElementById("sliderPenaltyMult").value);
+      document.getElementById("lblPenaltyMult").textContent = `${mult.toFixed(1)}× ${mult === 3.0 ? "(PS 03 Official Rule)" : ""}`;
+      const qOpt = (mult / (1.0 + mult)) * 100.0;
+      document.getElementById("calcOptimalQuantile").textContent = `${qOpt.toFixed(1)}th Percentile`;
+
+      const pols = PAYLOAD.policy_summary;
+      const naive = pols.find(p => p.policy.includes("Naive Baseline"));
+      const rec = pols.find(p => p.policy.includes("CIO Recommended"));
+
+      const naiveCost = naive.cum_idle_drag_cost_cr + (mult / 3.0) * naive.cum_shortfall_penalty_cr;
+      const recCost = rec.cum_idle_drag_cost_cr + (mult / 3.0) * rec.cum_shortfall_penalty_cr;
+      const savPct = ((naiveCost - recCost) / naiveCost) * 100.0;
+      const savCr = naiveCost - recCost;
+
+      document.getElementById("calcDynamicSaving").textContent = `-${savPct.toFixed(2)}% (Saves ₹${savCr.toFixed(1)} Cr)`;
+      document.getElementById("calcDynamicCompare").textContent = `₹${recCost.toFixed(1)} Cr vs ₹${naiveCost.toFixed(1)} Cr Naive`;
+    }
+
+    function switchTab(tab) {
+      state.activeTab = tab;
+      const map = {
+        overview: ["tabBtnOverview", "viewOverview"],
+        drivers: ["tabBtnDrivers", "viewDrivers"],
+        benchmark: ["tabBtnBenchmark", "viewBenchmark"],
+        decision: ["tabBtnDecision", "viewDecision"]
+      };
+      Object.keys(map).forEach(k => {
+        const [btnId, viewId] = map[k];
+        const btn = document.getElementById(btnId);
+        const view = document.getElementById(viewId);
+        if (k === tab) {
+          btn.className = "px-3 py-1.5 rounded-lg text-xs sm:text-sm font-semibold transition tab-btn-active";
+          view.classList.remove("hidden");
+        } else {
+          btn.className = "px-3 py-1.5 rounded-lg text-xs sm:text-sm font-semibold transition tab-btn-inactive";
+          view.classList.add("hidden");
+        }
+      });
+
+      if (tab === "overview") updateOverview();
+      if (tab === "drivers") initDriversView();
+      if (tab === "benchmark") initBenchmarkView();
+      if (tab === "decision") initDecisionView();
+    }
+
+    function exportScheduleCsv() {
+      const cat = state.selectedCategory;
+      const catAum = CATEGORY_AUM[cat];
+      const rows = PAYLOAD.forward_forecasts.filter(r => r.category === cat);
+      let csv = "Year_Month,Category,Point_Forecast_Cr,CI80_Lower_Cr,CI80_Upper_Cr,CI95_Lower_Cr,CI95_Upper_Cr,Recommended_Buffer_Pct_AUM,Scheme_AUM_Cr,Recommended_Scheme_Buffer_Cr,Tail_95_Scheme_Buffer_Cr\n";
+      rows.forEach(r => {
+        const rIndBuf = computePolicyBufferForRow(r, catAum, state.selectedPolicy);
+        const rPct = (rIndBuf / catAum) * 100.0;
+        const rSchemeBuf = (rPct / 100.0) * state.schemeAumCr;
+        const rTailInd = Math.max(catAum * 0.0025, r.p95_outflow_buffer_cr);
+        const rTailScheme = (rTailInd / catAum) * state.schemeAumCr;
+        csv += `${r.year_month},"${cat}",${r.point_forecast_cr},${r.ci80_lower_cr},${r.ci80_upper_cr},${r.ci95_lower_cr},${r.ci95_upper_cr},${rPct.toFixed(2)},${state.schemeAumCr},${rSchemeBuf.toFixed(1)},${rTailScheme.toFixed(1)}\n`;
+      });
+      const blob = new Blob([csv], { type: "text/csv;charset=utf-8;" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `PS03_Cash_Buffer_Schedule_${cat.replace(/\s+/g, "_")}.csv`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      showToast("Downloaded Cash-Buffer Policy Schedule CSV!");
+    }
+
+    window.addEventListener("DOMContentLoaded", () => {
+      document.getElementById("tabBtnOverview").addEventListener("click", () => switchTab("overview"));
+      document.getElementById("tabBtnDrivers").addEventListener("click", () => switchTab("drivers"));
+      document.getElementById("tabBtnBenchmark").addEventListener("click", () => switchTab("benchmark"));
+      document.getElementById("tabBtnDecision").addEventListener("click", () => switchTab("decision"));
+
+      document.getElementById("selectMonth").addEventListener("change", e => {
+        state.selectedMonth = e.target.value;
+        updateOverview();
+      });
+      document.getElementById("selectCategory").addEventListener("change", e => {
+        state.selectedCategory = e.target.value;
+        updateOverview();
+      });
+      document.getElementById("selectPolicy").addEventListener("change", e => {
+        state.selectedPolicy = e.target.value;
+        updateOverview();
+      });
+      document.getElementById("inputSchemeAum").addEventListener("input", e => {
+        const val = parseFloat(e.target.value);
+        if (!isNaN(val) && val > 0) {
+          state.schemeAumCr = val;
+          updateOverview();
+          if (state.activeTab === "drivers") updateStressSimulator();
+        }
+      });
+      document.getElementById("btnSetIndustryAum").addEventListener("click", () => {
+        const catAum = Math.round(CATEGORY_AUM[state.selectedCategory]);
+        state.schemeAumCr = catAum;
+        document.getElementById("inputSchemeAum").value = catAum;
+        updateOverview();
+        showToast(`Set Fund AUM to full ${state.selectedCategory} Industry AUM (₹${catAum.toLocaleString("en-IN")} Cr)`);
+      });
+      document.getElementById("btnExportCsv").addEventListener("click", exportScheduleCsv);
+
+      ["sliderSimLaf", "sliderSimTax", "sliderSimSpread", "sliderSimNifty"].forEach(id => {
+        document.getElementById(id).addEventListener("input", updateStressSimulator);
+      });
+      document.getElementById("btnResetStress").addEventListener("click", () => {
+        document.getElementById("sliderSimLaf").value = -142;
+        document.getElementById("sliderSimTax").value = 100;
+        document.getElementById("sliderSimSpread").value = 23;
+        document.getElementById("sliderSimNifty").value = -2.1;
+        updateStressSimulator();
+        showToast("Reset Stress Simulator to 15 March 2027 Baseline");
+      });
+
+      document.getElementById("sliderPenaltyMult").addEventListener("input", updatePenaltySensitivity);
+
+      updateOverview();
+    });
+  </script>
+</body>
+</html>

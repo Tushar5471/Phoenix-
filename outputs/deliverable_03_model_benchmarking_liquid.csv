@@ -1,0 +1,6 @@
+model,mape_pct,wape_pct,mae_cr,rmse_cr,mean_pinball_loss_cr,pinball_q50_cr,pinball_q90_cr,coverage_80_pct,coverage_95_pct,avg_80_pi_width_cr,avg_95_pi_width_cr
+Q-GBDT + Conformal (ML Champion),16.93,12.51,9651.1,13049.4,2549.3,4815.1,2519.2,91.7,95.8,38095.8,62522.2
+Neural MLP Ensemble (Deep Learning),17.55,13.61,10500.5,14691.1,2832.7,5250.3,2742.6,70.8,95.8,34063.8,52096.1
+ETS / Holt-Winters (Classical),20.0,14.89,11483.4,14352.2,2865.0,5741.7,2189.5,91.7,100.0,50069.7,76575.1
+SARIMAX + Exog (Classical),17.9,13.71,10577.9,14645.9,2962.4,5288.9,3081.2,66.7,83.3,24329.1,37624.9
+Seasonal Naive (Classical),23.13,16.71,12892.4,15320.2,3238.5,6446.2,2481.5,95.8,100.0,67956.0,103929.8
